@@ -43,7 +43,7 @@ private:
     }
 public:
     Logger() {
-        logfile.open("/var/log/immutarch.log", std::ios::app);
+        logfile.open("/var/log/archfreeze.log", std::ios::app);
     }
     
     ~Logger() {
@@ -161,7 +161,7 @@ public:
 class OverlayManager {
 private:
     Logger& logger;
-    std::string base_dir = "/var/lib/immutarch";
+    std::string base_dir = "/var/lib/archfreeze";
     std::string upper_dir;
     std::string work_dir;
     std::string merged_dir;
@@ -257,7 +257,7 @@ public:
     
     bool createSystemdMount() {
         try {
-            std::ofstream mount("/etc/systemd/system/immutarch-overlay.mount");
+            std::ofstream mount("/etc/systemd/system/archfreeze-overlay.mount");
             if (!mount.is_open()) {
                 logger.error("Cannot create mount unit");
                 return false;
@@ -275,7 +275,7 @@ public:
             mount << "Where=/\n";
             mount << "Type=overlay\n";
             mount << "Options=lowerdir=/,upperdir=" << upper_dir 
-                  << ",workdir=" << work_dir << ",x-systemd.requires-mounts-for=/var/lib/immutarch\n\n";
+                  << ",workdir=" << work_dir << ",x-systemd.requires-mounts-for=/var/lib/archfreeze\n\n";
             
             mount << "[Install]\n";
             mount << "WantedBy=local-fs.target\n";
@@ -283,7 +283,7 @@ public:
             mount.close();
             
             // Create automount for better performance
-            std::ofstream automount("/etc/systemd/system/immutarch-overlay.automount");
+            std::ofstream automount("/etc/systemd/system/archfreeze-overlay.automount");
             automount << "[Unit]\n";
             automount << "Description=Immutable Arch Overlay Automount\n";
             automount << "After=network-online.target\n\n";
@@ -298,8 +298,8 @@ public:
             automount.close();
             
             system("systemctl daemon-reload");
-            system("systemctl enable immutarch-overlay.mount");
-            system("systemctl enable immutarch-overlay.automount");
+            system("systemctl enable archfreeze-overlay.mount");
+            system("systemctl enable archfreeze-overlay.automount");
             
             logger.info("Created systemd mount units");
             return true;
@@ -412,7 +412,7 @@ public:
             // Directories to keep writable
             std::vector<std::string> rw_dirs = {
                 "/home", "/var", "/tmp", "/run", "/dev",
-                "/proc", "/sys", "/var/lib/immutarch"
+                "/proc", "/sys", "/var/lib/archfreeze"
             };
             
             // /etc is special - mostly read-only but some files need to be writable
@@ -427,8 +427,8 @@ public:
                     logger.info("Set RO: /etc");
                     
                     // Create writable overlay for /etc
-                    std::string etc_upper = "/var/lib/immutarch/upper/etc";
-                    std::string etc_work = "/var/lib/immutarch/work/etc";
+                    std::string etc_upper = "/var/lib/archfreeze/upper/etc";
+                    std::string etc_work = "/var/lib/archfreeze/work/etc";
                     fs::create_directories(etc_upper);
                     fs::create_directories(etc_work);
                     
@@ -538,21 +538,21 @@ public:
     bool createImmutableService() {
         try {
             // Main immutable service
-            std::ofstream service("/etc/systemd/system/immutarch.service");
+            std::ofstream service("/etc/systemd/system/archfreeze.service");
             if (!service.is_open()) return false;
             
             service << "[Unit]\n";
             service << "Description=Immutable Arch System\n";
-            service << "After=immutarch-overlay.mount\n";
+            service << "After=archfreeze-overlay.mount\n";
             service << "Before=multi-user.target\n";
             service << "Conflicts=shutdown.target\n\n";
             
             service << "[Service]\n";
             service << "Type=oneshot\n";
             service << "RemainAfterExit=yes\n";
-            service << "ExecStart=/usr/local/bin/immutarch-lock\n";
-            service << "ExecStop=/usr/local/bin/immutarch-unlock\n";
-            service << "ExecReload=/usr/local/bin/immutarch-reload\n";
+            service << "ExecStart=/usr/local/bin/archfreeze-lock\n";
+            service << "ExecStop=/usr/local/bin/archfreeze-unlock\n";
+            service << "ExecReload=/usr/local/bin/archfreeze-reload\n";
             service << "StandardOutput=journal\n";
             service << "StandardError=journal\n\n";
             
@@ -561,7 +561,7 @@ public:
             service.close();
             
             // Create timer for periodic locking
-            std::ofstream timer("/etc/systemd/system/immutarch-timer.timer");
+            std::ofstream timer("/etc/systemd/system/archfreeze-timer.timer");
             timer << "[Unit]\n";
             timer << "Description=Periodically lock immutable system\n\n";
             
@@ -575,14 +575,14 @@ public:
             timer.close();
             
             // Create lock status service
-            std::ofstream status("/etc/systemd/system/immutarch-status.service");
+            std::ofstream status("/etc/systemd/system/archfreeze-status.service");
             status << "[Unit]\n";
             status << "Description=Immutable Arch Status Check\n";
-            status << "After=immutarch.service\n\n";
+            status << "After=archfreeze.service\n\n";
             
             status << "[Service]\n";
             status << "Type=oneshot\n";
-            status << "ExecStart=/usr/local/bin/immutarch-status\n";
+            status << "ExecStart=/usr/local/bin/archfreeze-status\n";
             status << "RemainAfterExit=yes\n\n";
             
             status << "[Install]\n";
@@ -590,9 +590,9 @@ public:
             status.close();
             
             system("systemctl daemon-reload");
-            system("systemctl enable immutarch.service 2>/dev/null");
-            system("systemctl enable immutarch-timer.timer 2>/dev/null");
-            system("systemctl enable immutarch-status.service 2>/dev/null");
+            system("systemctl enable archfreeze.service 2>/dev/null");
+            system("systemctl enable archfreeze-timer.timer 2>/dev/null");
+            system("systemctl enable archfreeze-status.service 2>/dev/null");
             
             logger.info("Created immutable system services");
             return true;
@@ -605,7 +605,7 @@ public:
     bool createManagementScripts() {
         try {
             // Lock script
-            std::ofstream lock("/usr/local/bin/immutarch-lock");
+            std::ofstream lock("/usr/local/bin/archfreeze-lock");
             lock << "#!/bin/bash\n";
             lock << "# Lock system to read-only\n";
             lock << "set -e\n\n";
@@ -617,7 +617,7 @@ public:
             lock.close();
             
             // Unlock script
-            std::ofstream unlock("/usr/local/bin/immutarch-unlock");
+            std::ofstream unlock("/usr/local/bin/archfreeze-unlock");
             unlock << "#!/bin/bash\n";
             unlock << "# Unlock system for maintenance\n";
             unlock << "set -e\n\n";
@@ -629,17 +629,17 @@ public:
             unlock.close();
             
             // Status script
-            std::ofstream status("/usr/local/bin/immutarch-status");
+            std::ofstream status("/usr/local/bin/archfreeze-status");
             status << "#!/bin/bash\n";
             status << "# Check system status\n";
             status << "echo \"=== Arch Freeze Status ===\"\n";
             status << "echo \"System: $(mount | grep ' / ' | awk '{print $6}' | cut -d, -f1)\"\n";
-            status << "echo \"Snapshots: $(ls /var/lib/immutarch/snapshots/ 2>/dev/null | wc -l)\"\n";
-            status << "echo \"Last update: $(stat -c %y /var/lib/immutarch/upper/etc/pacman.conf 2>/dev/null || echo 'Never')\"\n";
+            status << "echo \"Snapshots: $(ls /var/lib/archfreeze/snapshots/ 2>/dev/null | wc -l)\"\n";
+            status << "echo \"Last update: $(stat -c %y /var/lib/archfreeze/upper/etc/pacman.conf 2>/dev/null || echo 'Never')\"\n";
             status.close();
             
             // Reload script
-            std::ofstream reload("/usr/local/bin/immutarch-reload");
+            std::ofstream reload("/usr/local/bin/archfreeze-reload");
             reload << "#!/bin/bash\n";
             reload << "# Reload configuration\n";
             reload << "systemctl daemon-reload\n";
@@ -648,7 +648,7 @@ public:
             reload.close();
             
             // Snapshot management
-            std::ofstream snapshot("/usr/local/bin/immutarch-snapshot");
+            std::ofstream snapshot("/usr/local/bin/archfreeze-snapshot");
             snapshot << "#!/bin/bash\n";
             snapshot << "# Manage snapshots\n";
             snapshot << "set -e\n\n";
@@ -661,11 +661,11 @@ public:
             snapshot << "            exit 1\n";
             snapshot << "        fi\n";
             snapshot << "        echo \"[Arch Freeze] Creating snapshot: $NAME\"\n";
-            snapshot << "        /usr/local/bin/immutarch-unlock\n";
-            snapshot << "        rsync -a --delete /var/lib/immutarch/upper/ /var/lib/immutarch/snapshots/\"$NAME\"/\n";
-            snapshot << "        echo \"date=$(date +%s)\" > /var/lib/immutarch/snapshots/\"$NAME\"/.metadata\n";
-            snapshot << "        echo \"name=$NAME\" >> /var/lib/immutarch/snapshots/\"$NAME\"/.metadata\n";
-            snapshot << "        /usr/local/bin/immutarch-lock\n";
+            snapshot << "        /usr/local/bin/archfreeze-unlock\n";
+            snapshot << "        rsync -a --delete /var/lib/archfreeze/upper/ /var/lib/archfreeze/snapshots/\"$NAME\"/\n";
+            snapshot << "        echo \"date=$(date +%s)\" > /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
+            snapshot << "        echo \"name=$NAME\" >> /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
+            snapshot << "        /usr/local/bin/archfreeze-lock\n";
             snapshot << "        echo \"[Arch Freeze] Snapshot $NAME created\"\n";
             snapshot << "        ;;\n";
             snapshot << "    restore)\n";
@@ -674,22 +674,22 @@ public:
             snapshot << "            exit 1\n";
             snapshot << "        fi\n";
             snapshot << "        echo \"[Arch Freeze] Restoring snapshot: $NAME...\"\n";
-            snapshot << "        /usr/local/bin/immutarch-unlock\n";
-            snapshot << "        rm -rf /var/lib/immutarch/upper/*\n";
-            snapshot << "        rsync -a --delete /var/lib/immutarch/snapshots/\"$NAME\"/ /var/lib/immutarch/upper/\n";
-            snapshot << "        /usr/local/bin/immutarch-lock\n";
+            snapshot << "        /usr/local/bin/archfreeze-unlock\n";
+            snapshot << "        rm -rf /var/lib/archfreeze/upper/*\n";
+            snapshot << "        rsync -a --delete /var/lib/archfreeze/snapshots/\"$NAME\"/ /var/lib/archfreeze/upper/\n";
+            snapshot << "        /usr/local/bin/archfreeze-lock\n";
             snapshot << "        echo \"[Arch Freeze] Snapshot $NAME restored - reboot required\"\n";
             snapshot << "        ;;\n";
             snapshot << "    list)\n";
             snapshot << "        echo \"Available snapshots:\"\n";
-            snapshot << "        ls -la /var/lib/immutarch/snapshots/\n";
+            snapshot << "        ls -la /var/lib/archfreeze/snapshots/\n";
             snapshot << "        ;;\n";
             snapshot << "    delete)\n";
             snapshot << "        if [ -z \"$NAME\" ]; then\n";
             snapshot << "            echo \"Usage: $0 delete <name>\"\n";
             snapshot << "            exit 1\n";
-            snapshot << "        fi\n";
-            snapshot << "        rm -rf /var/lib/immutarch/snapshots/\"$NAME\"\n";
+            timestamp << "        fi\n";
+            snapshot << "        rm -rf /var/lib/archfreeze/snapshots/\"$NAME\"\n";
             snapshot << "        echo \"Snapshot $NAME deleted\"\n";
             snapshot << "        ;;\n";
             snapshot << "    *)\n";
@@ -699,33 +699,33 @@ public:
             snapshot.close();
             
             // Update script
-            std::ofstream update("/usr/local/bin/immutarch-update");
+            std::ofstream update("/usr/local/bin/archfreeze-update");
             update << "#!/bin/bash\n";
             update << "# Safe system update\n";
             update << "set -e\n\n";
             update << "echo \"[Arch Freeze] Starting transactional update...\"\n";
-            update << "/usr/local/bin/immutarch-unlock\n\n";
+            update << "/usr/local/bin/archfreeze-unlock\n\n";
             update << "# Create pre-update snapshot\n";
             update << "SNAPSHOT=\"update-$(date +%Y%m%d-%H%M%S)\"\n";
-            update << "/usr/local/bin/immutarch-snapshot create \"$SNAPSHOT\"\n\n";
+            update << "/usr/local/bin/archfreeze-snapshot create \"$SNAPSHOT\"\n\n";
             update << "# Perform update\n";
             update << "pacman -Syu --noconfirm\n";
             update << "updatedb 2>/dev/null || true\n\n";
             update << "# Create post-update snapshot\n";
-            update << "/usr/local/bin/immutarch-snapshot create \"$SNAPSHOT-post\"\n";
-            update << "/usr/local/bin/immutarch-lock\n\n";
+            update << "/usr/local/bin/archfreeze-snapshot create \"$SNAPSHOT-post\"\n";
+            update << "/usr/local/bin/archfreeze-lock\n\n";
             update << "echo \"[Arch Freeze] Update complete. Snapshot: $SNAPSHOT\"\n";
             update << "echo \"[Arch Freeze] Reboot to apply changes\"\n";
             update.close();
             
             // Set executable permissions
             std::vector<std::string> scripts = {
-                "/usr/local/bin/immutarch-lock",
-                "/usr/local/bin/immutarch-unlock",
-                "/usr/local/bin/immutarch-status",
-                "/usr/local/bin/immutarch-reload",
-                "/usr/local/bin/immutarch-snapshot",
-                "/usr/local/bin/immutarch-update"
+                "/usr/local/bin/archfreeze-lock",
+                "/usr/local/bin/archfreeze-unlock",
+                "/usr/local/bin/archfreeze-status",
+                "/usr/local/bin/archfreeze-reload",
+                "/usr/local/bin/archfreeze-snapshot",
+                "/usr/local/bin/archfreeze-update"
             };
             
             for (const auto& script : scripts) {
@@ -946,7 +946,7 @@ public:
     bool createRecoveryTools() {
         try {
             // Emergency recovery script
-            std::ofstream recovery("/usr/local/bin/immutarch-recovery");
+            std::ofstream recovery("/usr/local/bin/archfreeze-recovery");
             recovery << "#!/bin/bash\n";
             recovery << "# Emergency recovery tool\n";
             recovery << "set -e\n\n";
@@ -960,14 +960,14 @@ public:
             recovery << "case $OPTION in\n";
             recovery << "    1)\n";
             recovery << "        echo \"Resetting to factory state...\"\n";
-            recovery << "        rm -rf /var/lib/immutarch/upper/*\n";
+            recovery << "        rm -rf /var/lib/archfreeze/upper/*\n";
             recovery << "        echo \"Reset complete. Reboot required.\"\n";
             recovery << "        ;;\n";
             recovery << "    2)\n";
             recovery << "        echo \"Available snapshots:\"\n";
-            recovery << "        ls /var/lib/immutarch/snapshots/\n";
+            recovery << "        ls /var/lib/archfreeze/snapshots/\n";
             recovery << "        read -p \"Enter snapshot name: \" SNAP\n";
-            recovery << "        /usr/local/bin/immutarch-snapshot restore \"$SNAP\"\n";
+            recovery << "        /usr/local/bin/archfreeze-snapshot restore \"$SNAP\"\n";
             recovery << "        ;;\n";
             recovery << "    3)\n";
             recovery << "        echo \"Fixing boot issues...\"\n";
@@ -1002,7 +1002,7 @@ public:
             recovery << "esac\n";
             recovery.close();
             
-            fs::permissions("/usr/local/bin/immutarch-recovery",
+            fs::permissions("/usr/local/bin/archfreeze-recovery",
                           fs::perms::owner_all | fs::perms::group_exec | fs::perms::others_exec);
             
             // Create recovery boot entry for GRUB
@@ -1059,7 +1059,7 @@ private:
     bool backupSystem() {
         logger.info("=== Creating System Backup ===");
         
-        std::string backup_dir = "/var/lib/immutarch/backup/system-" + 
+        std::string backup_dir = "/var/lib/archfreeze/backup/system-" + 
                                 std::to_string(time(0));
         
         try {
@@ -1105,22 +1105,22 @@ private:
         std::cout << COLOR_GREEN << "\n✓ Your Arch system is now immutable." << COLOR_RESET << std::endl;
         
         std::cout << COLOR_CYAN << "\nIMPORTANT COMMANDS:" << COLOR_RESET << std::endl;
-        std::cout << "  immutarch-lock      - Lock system to read-only" << std::endl;
-        std::cout << "  immutarch-unlock    - Unlock for maintenance" << std::endl;
-        std::cout << "  immutarch-status    - Check system status" << std::endl;
-        std::cout << "  immutarch-update    - Safe system update with snapshots" << std::endl;
-        std::cout << "  immutarch-snapshot  - Manage snapshots" << std::endl;
-        std::cout << "  immutarch-recovery  - Emergency recovery" << std::endl;
+        std::cout << "  archfreeze-lock      - Lock system to read-only" << std::endl;
+        std::cout << "  archfreeze-unlock    - Unlock for maintenance" << std::endl;
+        std::cout << "  archfreeze-status    - Check system status" << std::endl;
+        std::cout << "  archfreeze-update    - Safe system update with snapshots" << std::endl;
+        std::cout << "  archfreeze-snapshot  - Manage snapshots" << std::endl;
+        std::cout << "  archfreeze-recovery  - Emergency recovery" << std::endl;
         
         std::cout << COLOR_YELLOW << "\nNEXT STEPS:" << COLOR_RESET << std::endl;
         std::cout << "1. REBOOT your system" << std::endl;
         std::cout << "2. System will boot in immutable mode" << std::endl;
-        std::cout << "3. Use 'immutarch-unlock' before making changes" << std::endl;
-        std::cout << "4. Use 'immutarch-update' for package updates" << std::endl;
-        std::cout << "5. Snapshots are stored in /var/lib/immutarch/snapshots/" << std::endl;
+        std::cout << "3. Use 'archfreeze-unlock' before making changes" << std::endl;
+        std::cout << "4. Use 'archfreeze-update' for package updates" << std::endl;
+        std::cout << "5. Snapshots are stored in /var/lib/archfreeze/snapshots/" << std::endl;
         
-        std::cout << COLOR_MAGENTA << "\nLog file: " << COLOR_RESET << "/var/log/immutarch.log" << std::endl;
-        std::cout << COLOR_MAGENTA << "Configuration: " << COLOR_RESET << "/var/lib/immutarch/" << std::endl;
+        std::cout << COLOR_MAGENTA << "\nLog file: " << COLOR_RESET << "/var/log/archfreeze.log" << std::endl;
+        std::cout << COLOR_MAGENTA << "Configuration: " << COLOR_RESET << "/var/lib/archfreeze/" << std::endl;
         std::cout << COLOR_MAGENTA << "=" << std::string(70, '=') << "=" << COLOR_RESET << std::endl;
     }
     
@@ -1142,7 +1142,7 @@ public:
         logger.info("Date: " + std::string(__DATE__) + " " + std::string(__TIME__));
         
         // Check if already converted
-        if (fs::exists("/var/lib/immutarch/.converted")) {
+        if (fs::exists("/var/lib/archfreeze/.converted")) {
             logger.warn("System is already converted to immutable.");
             std::cout << COLOR_YELLOW << "Re-run conversion? (y/N): " << COLOR_RESET;
             std::string response;
@@ -1156,7 +1156,7 @@ public:
         std::cout << COLOR_RED << "\n=== WARNING ===" << COLOR_RESET << std::endl;
         std::cout << "This will convert your Arch Linux system to immutable mode.\n";
         std::cout << "The system will become read-only by default.\n";
-        std::cout << "Changes will be stored in /var/lib/immutarch/upper/\n";
+        std::cout << "Changes will be stored in /var/lib/archfreeze/upper/\n";
         std::cout << "Make sure you have backups of important data!\n\n";
         std::cout << COLOR_RED << "Type 'FREEZE' to proceed: " << COLOR_RESET;
         
@@ -1245,11 +1245,11 @@ public:
         }
         
         // Mark as converted
-        std::ofstream marker("/var/lib/immutarch/.converted");
+        std::ofstream marker("/var/lib/archfreeze/.converted");
         marker << "Arch Freeze conversion completed: " << time(0) << std::endl;
         marker << "Version: 1.0" << std::endl;
-        marker << "Upper dir: /var/lib/immutarch/upper" << std::endl;
-        marker << "Work dir: /var/lib/immutarch/work" << std::endl;
+        marker << "Upper dir: /var/lib/archfreeze/upper" << std::endl;
+        marker << "Work dir: /var/lib/archfreeze/work" << std::endl;
         marker.close();
         
         // Print summary
@@ -1263,7 +1263,7 @@ int main() {
     // Set up signal handling
     signal(SIGINT, [](int) {
         std::cout << COLOR_RED << "\n\nInterrupted. System may be in inconsistent state." << COLOR_RESET << std::endl;
-        std::cout << "Check /var/log/immutarch.log for details." << std::endl;
+        std::cout << "Check /var/log/archfreeze.log for details." << std::endl;
         exit(1);
     });
     
@@ -1275,7 +1275,7 @@ int main() {
             return 0;
         } else {
             std::cerr << COLOR_RED << "\n✗ Conversion failed." << COLOR_RESET << std::endl;
-            std::cerr << "Check /var/log/immutarch.log for details." << std::endl;
+            std::cerr << "Check /var/log/archfreeze.log for details." << std::endl;
             return 1;
         }
     } catch (const std::exception& e) {
