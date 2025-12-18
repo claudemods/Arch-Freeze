@@ -20,7 +20,10 @@
 #include <grp.h>
 #include <pwd.h>
 #include <filesystem>
-#include <ctime>
+#include <ctime#include <sys/statvfs.h>    // For statvfs() - disk space checking
+#include <sys/statfs.h>     // For statfs() - filesystem checking
+#include <sys/utsname.h>>
+
 
 namespace fs = std::filesystem;
 
