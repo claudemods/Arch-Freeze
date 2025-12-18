@@ -8,7 +8,7 @@
 
 
 # 🔒 claudemods arch freeze
-tool to turn any arch distro immutable
+⚠️🏗tool to turn any arch distro immutable
 currently not tested only coded but alot of work will be done to this soon
 
 🔒 **Lock system (default state)** `archfreeze-lock`
