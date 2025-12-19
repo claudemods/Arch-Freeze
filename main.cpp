@@ -210,6 +210,12 @@ public:
             // Use mount --bind (FIXED: removed sudo since we're already root)
             std::string cmd = "mount --bind / " + clone_dir;
             int result = system(cmd.c_str());
+
+            std::string cmd = "mkdir -p " + clone_dir + "/run/host";
+            int result = system(cmd.c_str());
+
+            std::string cmd = "mkdir -p " + clone_dir + "/run/host/incoming";
+            int result = system(cmd.c_str());
             
             if (result != 0) {
                 logger.error("Failed to create bind mount");
@@ -227,7 +233,6 @@ public:
             cmd += "-e dev/* ";
             cmd += "-e proc/* ";
             cmd += "-e sys/* ";
-            cmd += "-e tmp/* ";
             cmd += "-e home/* ";
             cmd += "-e run/* ";
             cmd += "-e mnt/* ";
