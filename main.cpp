@@ -198,29 +198,42 @@ public:
         return createSquashFSImage();
     }
 
-    // NEW METHOD: Create SquashFS image using bind mount
     bool createSquashFSImage() {
-        try {
-            std::string clone_dir = base_dir + "/working/clone_system";
-            std::string output_file = squashfs_dir + "/rootfs.img";
-            
-            // Create directories
-            fs::create_directories(clone_dir);
-            
-            // Use mount --bind (FIXED: removed sudo since we're already root)
-            std::string cmd = "mount --bind / " + clone_dir;
-            int result = system(cmd.c_str());
-
-            std::string cmd = "mkdir -p " + clone_dir + "/run/host";
-            int result = system(cmd.c_str());
-
-            std::string cmd = "mkdir -p " + clone_dir + "/run/host/incoming";
-            int result = system(cmd.c_str());
-            
-            if (result != 0) {
-                logger.error("Failed to create bind mount");
-                return false;
-            }
+    try {
+        std::string clone_dir = base_dir + "/working/clone_system";
+        std::string output_file = squashfs_dir + "/rootfs.img";
+        
+        // Create directories
+        fs::create_directories(clone_dir);
+        
+        // Use mount --bind (FIXED: removed duplicate declarations)
+        std::string cmd = "mount --bind / " + clone_dir;
+        int result = system(cmd.c_str());
+        
+        if (result != 0) {
+            logger.error("Failed to create bind mount");
+            return false;
+        }
+        
+        // Create run/host directory
+        cmd = "mkdir -p " + clone_dir + "/run/host";
+        result = system(cmd.c_str());
+        
+        if (result != 0) {
+            logger.error("Failed to create /run/host directory");
+            system(("umount " + clone_dir + " 2>/dev/null").c_str());
+            return false;
+        }
+        
+        // Create run/host/incoming directory
+        cmd = "mkdir -p " + clone_dir + "/run/host/incoming";
+        result = system(cmd.c_str());
+        
+        if (result != 0) {
+            logger.error("Failed to create /run/host/incoming directory");
+            system(("umount " + clone_dir + " 2>/dev/null").c_str());
+            return false;
+        }
             
             // Create SquashFS with exclusions - FIXED: Added etc/machine-id exclusion
             cmd = "mksquashfs " + clone_dir + " " + output_file + " ";
