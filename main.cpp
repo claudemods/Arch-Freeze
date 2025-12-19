@@ -55,23 +55,23 @@ public:
 
     void log(const std::string& msg, bool echo = true) {
         std::string logmsg = "[" + timestamp() + "] " + msg;
-        if (echo) std::cout << COLOR_GREEN << "[LOG] " << COLOR_RESET << msg << std::endl;
+        if (echo) std::cout << COLOR_CYAN << "[LOG] " << COLOR_RESET << COLOR_CYAN << msg << COLOR_RESET << std::endl;
         if (logfile.is_open()) logfile << logmsg << std::endl;
     }
 
     void error(const std::string& msg) {
         std::string errmsg = "ERROR: " + msg;
-        std::cout << COLOR_RED << "[ERROR] " << COLOR_RESET << msg << std::endl;
-        if (logfile.is_open()) logfile << "[" << timestamp() << "] ERROR: " << msg << std::endl;
+        std::cout << COLOR_CYAN << "[ERROR] " << COLOR_RESET << COLOR_CYAN << msg << COLOR_RESET << std::endl;
+        if (logfile.is_open()) logfile << "[" << timestamp() << "] ERROR: " + msg << std::endl;
     }
 
     void warn(const std::string& msg) {
-        std::cout << COLOR_YELLOW << "[WARN] " << COLOR_RESET << msg << std::endl;
+        std::cout << COLOR_CYAN << "[WARN] " << COLOR_RESET << COLOR_CYAN << msg << COLOR_RESET << std::endl;
         if (logfile.is_open()) logfile << "[" << timestamp() << "] WARN: " + msg << std::endl;
     }
 
     void info(const std::string& msg) {
-        std::cout << COLOR_CYAN << "[INFO] " << COLOR_RESET << msg << std::endl;
+        std::cout << COLOR_CYAN << "[INFO] " << COLOR_RESET << COLOR_CYAN << msg << COLOR_RESET << std::endl;
         if (logfile.is_open()) logfile << "[" << timestamp() << "] INFO: " + msg << std::endl;
     }
 };
@@ -140,7 +140,7 @@ public:
         if (!checkFilesystem()) return false;
         if (!checkKernel()) return false;
         if (!checkDiskSpace()) {
-            std::cout << COLOR_YELLOW << "Continue anyway? (y/N): " << COLOR_RESET;
+            std::cout << COLOR_CYAN << "Continue anyway? (y/N): " << COLOR_RESET;
             std::string response;
             std::cin >> response;
             if (response != "y" && response != "Y") return false;
@@ -173,7 +173,7 @@ public:
                 base_dir, upper_dir, work_dir, merged_dir, squashfs_dir,
                 base_dir + "/snapshots",
                 base_dir + "/backup",
-                base_dir + "/tmp",
+                base_dir + "/working",
                 base_dir + "/config"
             };
 
@@ -201,7 +201,7 @@ public:
     // NEW METHOD: Create SquashFS image using bind mount
     bool createSquashFSImage() {
         try {
-            std::string clone_dir = "/tmp/clone_system_temp";
+            std::string clone_dir = base_dir + "/working/clone_system";
             std::string output_file = squashfs_dir + "/rootfs.img";
             
             // Create directories
@@ -232,7 +232,9 @@ public:
             cmd += "-e mnt/* ";
             cmd += "-e media/* ";
             cmd += "-e lost+found ";
-            cmd += "-e clone_system_temp";
+            cmd += "-e var/lib/archfreeze ";
+            cmd += "-e var/log/archfreeze.log ";
+            cmd += "-e " + base_dir + "/*";
             
             result = system(cmd.c_str());
             
@@ -303,6 +305,8 @@ public:
             service << "[Unit]\n";
             service << "Description=Arch Freeze Nspawn Container\n";
             service << "After=network.target\n";
+            service << "Before=multi-user.target\n";  // Added to start early
+            service << "DefaultDependencies=no\n";    // Added for boot integration
             service << "\n";
             service << "[Service]\n";
             service << "Type=simple\n";
@@ -310,6 +314,9 @@ public:
             service << "--bind=/dev --bind=/proc --bind=/sys --bind=/tmp --bind=/run ";
             service << "--bind=/home --network-veth\n";
             service << "Restart=always\n";
+            service << "RestartSec=5\n";  // Added restart delay
+            service << "KillMode=mixed\n";
+            service << "TimeoutStopSec=30\n";
             service << "\n";
             service << "[Install]\n";
             service << "WantedBy=multi-user.target\n";
@@ -517,9 +524,9 @@ public:
             std::ofstream lock("/usr/local/bin/archfreeze-lock");
             lock << "#!/bin/bash\n";
             lock << "# Lock system - Start nspawn container\n";
-            lock << "echo \"[Arch Freeze] Locking system...\"\n";
+            lock << "echo \"" << COLOR_CYAN << "[Arch Freeze] Locking system..." << COLOR_RESET << "\"\n";
             lock << "systemctl start archfreeze-nspawn.service\n";
-            lock << "echo \"[Arch Freeze] System is now immutable (running in container)\"\n";
+            lock << "echo \"" << COLOR_CYAN << "[Arch Freeze] System is now immutable (running in container)" << COLOR_RESET << "\"\n";
             lock << "logger \"Arch Freeze: system locked (container started)\"\n";
             lock.close();
 
@@ -527,9 +534,9 @@ public:
             std::ofstream unlock("/usr/local/bin/archfreeze-unlock");
             unlock << "#!/bin/bash\n";
             unlock << "# Unlock system - Stop nspawn container\n";
-            unlock << "echo \"[Arch Freeze] Unlocking system...\"\n";
+            unlock << "echo \"" << COLOR_CYAN << "[Arch Freeze] Unlocking system..." << COLOR_RESET << "\"\n";
             unlock << "systemctl stop archfreeze-nspawn.service\n";
-            unlock << "echo \"[Arch Freeze] System is now mutable (container stopped)\"\n";
+            unlock << "echo \"" << COLOR_CYAN << "[Arch Freeze] System is now mutable (container stopped)" << COLOR_RESET << "\"\n";
             unlock << "logger \"Arch Freeze: system unlocked (container stopped)\"\n";
             unlock.close();
 
@@ -537,14 +544,14 @@ public:
             std::ofstream status("/usr/local/bin/archfreeze-status");
             status << "#!/bin/bash\n";
             status << "# Check system status\n";
-            status << "echo \"=== Arch Freeze Status ===\"\n";
+            status << "echo \"" << COLOR_CYAN << "=== Arch Freeze Status ===" << COLOR_RESET << "\"\n";
             status << "if systemctl is-active archfreeze-nspawn.service &>/dev/null; then\n";
-            status << "    echo \"System: Immutable (running in container)\"\n";
+            status << "    echo \"" << COLOR_CYAN << "System: Immutable (running in container)" << COLOR_RESET << "\"\n";
             status << "else\n";
-            status << "    echo \"System: Mutable (host system)\"\n";
+            status << "    echo \"" << COLOR_CYAN << "System: Mutable (host system)" << COLOR_RESET << "\"\n";
             status << "fi\n";
-            status << "echo \"SquashFS image: /var/lib/archfreeze/squashfs/rootfs.img\"\n";
-            status << "echo \"Snapshots: $(ls /var/lib/archfreeze/snapshots/ 2>/dev/null | wc -l)\"\n";
+            status << "echo \"" << COLOR_CYAN << "SquashFS image: /var/lib/archfreeze/squashfs/rootfs.img" << COLOR_RESET << "\"\n";
+            status << "echo \"" << COLOR_CYAN << "Snapshots: $(ls /var/lib/archfreeze/snapshots/ 2>/dev/null | wc -l)" << COLOR_RESET << "\"\n";
             status.close();
 
             // UPDATED: Snapshot script
@@ -556,7 +563,7 @@ public:
             snapshot << "case \"$ACTION\" in\n";
             snapshot << "    create)\n";
             snapshot << "        if [ -z \"$NAME\" ]; then exit 1; fi\n";
-            snapshot << "        echo \"Creating snapshot: $NAME\"\n";
+            snapshot << "        echo \"" << COLOR_CYAN << "Creating snapshot: $NAME" << COLOR_RESET << "\"\n";
             snapshot << "        mkdir -p /var/lib/archfreeze/snapshots/\"$NAME\"\n";
             snapshot << "        cp /var/lib/archfreeze/squashfs/rootfs.img /var/lib/archfreeze/snapshots/\"$NAME\"/\n";
             snapshot << "        echo \"date=$(date +%s)\" > /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
@@ -565,16 +572,16 @@ public:
             snapshot << "    restore)\n";
             snapshot << "        if [ -z \"$NAME\" ]; then exit 1; fi\n";
             snapshot << "        if [ ! -d \"/var/lib/archfreeze/snapshots/$NAME\" ]; then exit 1; fi\n";
-            snapshot << "        echo \"Restoring snapshot: $NAME...\"\n";
+            snapshot << "        echo \"" << COLOR_CYAN << "Restoring snapshot: $NAME..." << COLOR_RESET << "\"\n";
             snapshot << "        cp /var/lib/archfreeze/snapshots/\"$NAME\"/rootfs.img /var/lib/archfreeze/squashfs/rootfs.img\n";
-            snapshot << "        echo \"Snapshot $NAME restored - restart container to apply\"\n";
+            snapshot << "        echo \"" << COLOR_CYAN << "Snapshot $NAME restored - restart container to apply" << COLOR_RESET << "\"\n";
             snapshot << "        ;;\n";
             snapshot << "    list)\n";
-            snapshot << "        echo \"Available snapshots:\"\n";
+            snapshot << "        echo \"" << COLOR_CYAN << "Available snapshots:" << COLOR_RESET << "\"\n";
             snapshot << "        ls /var/lib/archfreeze/snapshots/\n";
             snapshot << "        ;;\n";
             snapshot << "    *)\n";
-            snapshot << "        echo \"Usage: $0 {create|restore|list} [name]\"\n";
+            snapshot << "        echo \"" << COLOR_CYAN << "Usage: $0 {create|restore|list} [name]" << COLOR_RESET << "\"\n";
             snapshot << "        ;;\n";
             snapshot << "esac\n";
             snapshot.close();
@@ -583,29 +590,29 @@ public:
             std::ofstream update("/usr/local/bin/archfreeze-update");
             update << "#!/bin/bash\n";
             update << "# Safe system update\n";
-            update << "echo \"[Arch Freeze] Starting update...\"\n";
-            update << "echo \"Current snapshot: $(ls /var/lib/archfreeze/snapshots/ | tail -1)\"\n\n";
+            update << "echo \"" << COLOR_CYAN << "[Arch Freeze] Starting update..." << COLOR_RESET << "\"\n";
+            update << "echo \"" << COLOR_CYAN << "Current snapshot: $(ls /var/lib/archfreeze/snapshots/ | tail -1)" << COLOR_RESET << "\"\n\n";
             update << "# Create pre-update snapshot\n";
             update << "SNAPSHOT=\"update-$(date +%Y%m%d-%H%M%S)\"\n";
-            update << "echo \"Creating pre-update snapshot: $SNAPSHOT\"\n";
+            update << "echo \"" << COLOR_CYAN << "Creating pre-update snapshot: $SNAPSHOT" << COLOR_RESET << "\"\n";
             update << "/usr/local/bin/archfreeze-snapshot create \"$SNAPSHOT\"\n\n";
             update << "# Update SquashFS image\n";
-            update << "echo \"Updating system...\"\n";
+            update << "echo \"" << COLOR_CYAN << "Updating system..." << COLOR_RESET << "\"\n";
             update << "/usr/local/bin/archfreeze-rebuild-image\n\n";
             update << "# Create post-update snapshot\n";
             update << "POST_SNAPSHOT=\"$SNAPSHOT-post\"\n";
-            update << "echo \"Creating post-update snapshot: $POST_SNAPSHOT\"\n";
+            update << "echo \"" << COLOR_CYAN << "Creating post-update snapshot: $POST_SNAPSHOT" << COLOR_RESET << "\"\n";
             update << "/usr/local/bin/archfreeze-snapshot create \"$POST_SNAPSHOT\"\n";
-            update << "echo \"[Arch Freeze] Update complete! Restart container to apply.\"\n";
+            update << "echo \"" << COLOR_CYAN << "[Arch Freeze] Update complete! Restart container to apply." << COLOR_RESET << "\"\n";
             update.close();
 
-            // NEW: Rebuild image script
+            // NEW: Rebuild image script - MODIFIED to not use /tmp
             std::ofstream rebuild("/usr/local/bin/archfreeze-rebuild-image");
             rebuild << "#!/bin/bash\n";
             rebuild << "# Rebuild SquashFS image\n";
             rebuild << "set -e\n\n";
-            rebuild << "echo \"[Arch Freeze] Rebuilding SquashFS image...\"\n";
-            rebuild << "TEMP_DIR=\"/tmp/archfreeze-rebuild\"\n";
+            rebuild << "echo \"" << COLOR_CYAN << "[Arch Freeze] Rebuilding SquashFS image..." << COLOR_RESET << "\"\n";
+            rebuild << "TEMP_DIR=\"/var/lib/archfreeze/working/rebuild\"\n";
             rebuild << "mkdir -p \"$TEMP_DIR\"\n\n";
             rebuild << "# Bind mount\n";
             rebuild << "sudo mount --bind / \"$TEMP_DIR\"\n\n";
@@ -616,13 +623,15 @@ public:
             rebuild << "  -e etc/udev/rules.d/70-persistent-net.rules \\\n";
             rebuild << "  -e etc/mtab -e etc/fstab \\\n";
             rebuild << "  -e dev/* -e proc/* -e sys/* -e tmp/* -e run/* \\\n";
-            rebuild << "  -e mnt/* -e media/* -e lost+found\n\n";
+            rebuild << "  -e mnt/* -e media/* -e lost+found \\\n";
+            rebuild << "  -e var/lib/archfreeze \\\n";
+            rebuild << "  -e var/log/archfreeze.log\n\n";
             rebuild << "# Replace old image\n";
             rebuild << "mv /var/lib/archfreeze/squashfs/rootfs.img.new /var/lib/archfreeze/squashfs/rootfs.img\n\n";
             rebuild << "# Cleanup\n";
             rebuild << "sudo umount \"$TEMP_DIR\"\n";
             rebuild << "rm -rf \"$TEMP_DIR\"\n";
-            rebuild << "echo \"[Arch Freeze] Image rebuilt successfully\"\n";
+            rebuild << "echo \"" << COLOR_CYAN << "[Arch Freeze] Image rebuilt successfully" << COLOR_RESET << "\"\n";
             rebuild.close();
 
             // KEEP YOUR ORIGINAL RECOVERY SCRIPT
@@ -630,42 +639,42 @@ public:
             recovery << "#!/bin/bash\n";
             recovery << "# Emergency recovery tool\n";
             recovery << "set -e\n\n";
-            recovery << "echo \"=== Arch Freeze Recovery ===\"\n";
-            recovery << "echo \"1. Reset to factory state\"\n";
-            recovery << "echo \"2. Restore from snapshot\"\n";
-            recovery << "echo \"3. Fix boot issues\"\n";
-            recovery << "echo \"4. Check system integrity\"\n";
-            recovery << "echo \"5. Emergency shell\"\n";
-            recovery << "echo \"6. Repair Arch Freeze installation\"\n";
-            recovery << "read -p \"Select option: \" OPTION\n\n";
+            recovery << "echo \"" << COLOR_CYAN << "=== Arch Freeze Recovery ===" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "1. Reset to factory state" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "2. Restore from snapshot" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "3. Fix boot issues" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "4. Check system integrity" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "5. Emergency shell" << COLOR_RESET << "\"\n";
+            recovery << "echo \"" << COLOR_CYAN << "6. Repair Arch Freeze installation" << COLOR_RESET << "\"\n";
+            recovery << "read -p \"" << COLOR_CYAN << "Select option: " << COLOR_RESET << "\" OPTION\n\n";
             recovery << "case $OPTION in\n";
             recovery << "    1)\n";
-            recovery << "        echo \"Running factory reset...\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Running factory reset..." << COLOR_RESET << "\"\n";
             recovery << "        /usr/local/bin/archfreeze-factory-reset\n";
             recovery << "        ;;\n";
             recovery << "    2)\n";
-            recovery << "        echo \"Available snapshots:\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Available snapshots:" << COLOR_RESET << "\"\n";
             recovery << "        /usr/local/bin/archfreeze-snapshot list\n";
-            recovery << "        read -p \"Enter snapshot name: \" SNAP\n";
+            recovery << "        read -p \"" << COLOR_CYAN << "Enter snapshot name: " << COLOR_RESET << "\" SNAP\n";
             recovery << "        /usr/local/bin/archfreeze-snapshot restore \"$SNAP\"\n";
             recovery << "        ;;\n";
             recovery << "    3)\n";
-            recovery << "        echo \"Fixing boot issues...\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Fixing boot issues..." << COLOR_RESET << "\"\n";
             recovery << "        # Fix boot\n";
             recovery << "        ;;\n";
             recovery << "    4)\n";
-            recovery << "        echo \"Checking system integrity...\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Checking system integrity..." << COLOR_RESET << "\"\n";
             recovery << "        # Check integrity\n";
             recovery << "        ;;\n";
             recovery << "    5)\n";
-            recovery << "        echo \"Dropping to emergency shell...\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Dropping to emergency shell..." << COLOR_RESET << "\"\n";
             recovery << "        /bin/bash\n";
             recovery << "        ;;\n";
             recovery << "    6)\n";
             recovery << "        /usr/local/bin/archfreeze-repair\n";
             recovery << "        ;;\n";
             recovery << "    *)\n";
-            recovery << "        echo \"Invalid option\"\n";
+            recovery << "        echo \"" << COLOR_CYAN << "Invalid option" << COLOR_RESET << "\"\n";
             recovery << "        ;;\n";
             recovery << "esac\n";
             recovery.close();
@@ -675,9 +684,9 @@ public:
             repair << "#!/bin/bash\n";
             repair << "# Repair Arch Freeze installation\n";
             repair << "set -e\n\n";
-            repair << "echo \"[Arch Freeze] Repairing installation...\"\n\n";
+            repair << "echo \"" << COLOR_CYAN << "[Arch Freeze] Repairing installation..." << COLOR_RESET << "\"\n\n";
             repair << "# Ensure directories exist\n";
-            repair << "mkdir -p /var/lib/archfreeze/{squashfs,snapshots,backup,config}\n\n";
+            repair << "mkdir -p /var/lib/archfreeze/{squashfs,snapshots,backup,working,config}\n\n";
             repair << "# Ensure permissions\n";
             repair << "chmod 755 /var/lib/archfreeze\n";
             repair << "chmod 755 /var/lib/archfreeze/*\n\n";
@@ -688,8 +697,8 @@ public:
             repair << "# Enable services\n";
             repair << "systemctl enable archfreeze-nspawn.service 2>/dev/null || true\n";
             repair << "systemctl enable archfreeze.service 2>/dev/null || true\n\n";
-            repair << "echo \"[Arch Freeze] Repair completed\"\n";
-            repair << "echo \"Run 'archfreeze-status' to check system state\"\n";
+            repair << "echo \"" << COLOR_CYAN << "[Arch Freeze] Repair completed" << COLOR_RESET << "\"\n";
+            repair << "echo \"" << COLOR_CYAN << "Run 'archfreeze-status' to check system state" << COLOR_RESET << "\"\n";
             repair.close();
 
             // KEEP YOUR ORIGINAL FACTORY RESET
@@ -697,34 +706,34 @@ public:
             factory_reset << "#!/bin/bash\n";
             factory_reset << "# Factory Reset\n";
             factory_reset << "set -e\n\n";
-            factory_reset << "echo \"=== Arch Freeze Factory Reset ===\"\n";
-            factory_reset << "read -p \"Type 'RESET' to confirm: \" CONFIRM\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "=== Arch Freeze Factory Reset ===" << COLOR_RESET << "\"\n";
+            factory_reset << "read -p \"" << COLOR_CYAN << "Type 'RESET' to confirm: " << COLOR_RESET << "\" CONFIRM\n";
             factory_reset << "if [ \"$CONFIRM\" != \"RESET\" ]; then\n";
-            factory_reset << "    echo \"Reset cancelled\"\n";
+            factory_reset << "    echo \"" << COLOR_CYAN << "Reset cancelled" << COLOR_RESET << "\"\n";
             factory_reset << "    exit 1\n";
             factory_reset << "fi\n\n";
-            factory_reset << "echo \"[1/6] Stopping services...\"\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[1/6] Stopping services..." << COLOR_RESET << "\"\n";
             factory_reset << "systemctl stop archfreeze.service 2>/dev/null || true\n";
             factory_reset << "systemctl stop archfreeze-nspawn.service 2>/dev/null || true\n";
             factory_reset << "systemctl disable archfreeze.service 2>/dev/null || true\n";
             factory_reset << "systemctl disable archfreeze-nspawn.service 2>/dev/null || true\n";
             factory_reset << "systemctl disable archfreeze-timer.timer 2>/dev/null || true\n\n";
-            factory_reset << "echo \"[2/6] Removing systemd units...\"\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[2/6] Removing systemd units..." << COLOR_RESET << "\"\n";
             factory_reset << "rm -f /etc/systemd/system/archfreeze*.service 2>/dev/null || true\n";
             factory_reset << "rm -f /etc/systemd/system/archfreeze*.timer 2>/dev/null || true\n";
             factory_reset << "systemctl daemon-reload\n\n";
-            factory_reset << "echo \"[3/6] Removing scripts...\"\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[3/6] Removing scripts..." << COLOR_RESET << "\"\n";
             factory_reset << "rm -f /usr/local/bin/archfreeze-* 2>/dev/null || true\n\n";
-            factory_reset << "echo \"[4/6] Restoring fstab...\"\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[4/6] Restoring fstab..." << COLOR_RESET << "\"\n";
             factory_reset << "if [ -f \"/etc/fstab.backup\" ]; then\n";
             factory_reset << "    cp -f /etc/fstab.backup /etc/fstab 2>/dev/null || true\n";
             factory_reset << "fi\n\n";
-            factory_reset << "echo \"[5/6] Cleaning up data...\"\n";
-            factory_reset << "read -p \"Remove ALL Arch Freeze data? (y/N): \" REMOVE_DATA\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[5/6] Cleaning up data..." << COLOR_RESET << "\"\n";
+            factory_reset << "read -p \"" << COLOR_CYAN << "Remove ALL Arch Freeze data? (y/N): " << COLOR_RESET << "\" REMOVE_DATA\n";
             factory_reset << "if [ \"$REMOVE_DATA\" = \"y\" ] || [ \"$REMOVE_DATA\" = \"Y\" ]; then\n";
             factory_reset << "    rm -rf /var/lib/archfreeze 2>/dev/null || true\n";
             factory_reset << "fi\n\n";
-            factory_reset << "echo \"[6/6] Reset complete!\"\n";
+            factory_reset << "echo \"" << COLOR_CYAN << "[6/6] Reset complete!" << COLOR_RESET << "\"\n";
             factory_reset.close();
 
             // Set executable permissions
@@ -755,6 +764,32 @@ public:
             logger.error("Script creation failed: " + std::string(e.what()));
             return false;
         }
+    }
+
+    // NEW METHOD: Enable and start the immutable system immediately
+    bool activateImmutableSystem() {
+        logger.info("Activating immutable system...");
+        
+        // Enable the nspawn service to start on boot
+        int result = system("systemctl enable archfreeze-nspawn.service 2>/dev/null");
+        if (result != 0) {
+            logger.error("Failed to enable archfreeze-nspawn.service");
+            return false;
+        }
+        
+        // Start the nspawn service immediately
+        result = system("systemctl start archfreeze-nspawn.service 2>/dev/null");
+        if (result != 0) {
+            logger.error("Failed to start archfreeze-nspawn.service");
+            return false;
+        }
+        
+        // Also enable the main archfreeze service
+        system("systemctl enable archfreeze.service 2>/dev/null");
+        system("systemctl start archfreeze.service 2>/dev/null");
+        
+        logger.info("Immutable system activated and started");
+        return true;
     }
 };
 
@@ -848,31 +883,52 @@ private:
         std::cout << std::endl;
         std::cout << COLOR_MAGENTA << "=" << std::string(70, '=') << "=" << COLOR_RESET << std::endl;
         logger.info("=== CONVERSION COMPLETE ===");
-        std::cout << COLOR_GREEN << "\n✓ Your Arch system is now immutable using systemd-nspawn!" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "\n✓ Your Arch system is now immutable!" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "✓ The immutable system has been ACTIVATED and is now running." << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "✓ After reboot, it will automatically start in immutable mode." << COLOR_RESET << std::endl;
+
+        std::cout << COLOR_CYAN << "\nSYSTEM STATUS:" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  • System is currently running in immutable container" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  • SquashFS image: /var/lib/archfreeze/squashfs/rootfs.img" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  • Initial snapshot created for recovery" << COLOR_RESET << std::endl;
 
         std::cout << COLOR_CYAN << "\nIMPORTANT COMMANDS:" << COLOR_RESET << std::endl;
-        std::cout << "  archfreeze-lock          - Start immutable container" << std::endl;
-        std::cout << "  archfreeze-unlock        - Stop immutable container" << std::endl;
-        std::cout << "  archfreeze-status        - Check system status" << std::endl;
-        std::cout << "  archfreeze-update        - Safe system update" << std::endl;
-        std::cout << "  archfreeze-snapshot      - Manage snapshots" << std::endl;
-        std::cout << "  archfreeze-recovery      - Emergency recovery" << std::endl;
-        std::cout << "  archfreeze-repair        - Repair installation" << std::endl;
-        std::cout << "  archfreeze-factory-reset - Remove Arch Freeze" << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-unlock        - Stop immutable container (for updates)" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-lock          - Restart immutable container" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-status        - Check system status" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-update        - Safe system update" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-snapshot      - Manage snapshots" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-recovery      - Emergency recovery" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-repair        - Repair installation" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "  archfreeze-factory-reset - Remove Arch Freeze" << COLOR_RESET << std::endl;
 
-        std::cout << COLOR_YELLOW << "\nNEXT STEPS:" << COLOR_RESET << std::endl;
-        std::cout << "1. Run: archfreeze-lock (to start container)" << std::endl;
-        std::cout << "2. System runs from SquashFS: /var/lib/archfreeze/squashfs/rootfs.img" << std::endl;
-        std::cout << "3. Use archfreeze-unlock before updates" << std::endl;
+        std::cout << COLOR_CYAN << "\nNEXT STEPS:" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "1. System is already immutable - no action needed" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "2. Reboot to verify auto-start works" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "3. Use archfreeze-unlock before updates, then archfreeze-lock after" << COLOR_RESET << std::endl;
 
         std::cout << COLOR_MAGENTA << "\nLog file: " << COLOR_RESET << "/var/log/archfreeze.log" << std::endl;
         std::cout << COLOR_MAGENTA << "=" << std::string(70, '=') << "=" << COLOR_RESET << std::endl;
+        
+        // Ask for reboot
+        std::cout << COLOR_CYAN << "\nReboot now to complete the process? (recommended) (y/N): " << COLOR_RESET;
+        std::string response;
+        std::cin >> response;
+        
+        if (response == "y" || response == "Y") {
+            logger.info("Rebooting system...");
+            system("sleep 2");
+            system("reboot");
+        } else {
+            std::cout << COLOR_CYAN << "\nManual reboot required for changes to fully take effect." << COLOR_RESET << std::endl;
+            std::cout << COLOR_CYAN << "Run: reboot" << COLOR_RESET << std::endl;
+        }
     }
 
     bool checkExistingInstallation() {
         if (fs::exists("/var/lib/archfreeze/.converted")) {
             logger.warn("System is already converted.");
-            std::cout << COLOR_YELLOW << "What would you like to do?\n";
+            std::cout << COLOR_CYAN << "What would you like to do?\n";
             std::cout << "1. Repair existing installation\n";
             std::cout << "2. Re-run full conversion\n";
             std::cout << "3. Exit\n";
@@ -885,7 +941,7 @@ private:
                 system("/usr/local/bin/archfreeze-repair 2>/dev/null || echo 'Repair script not found'");
                 return false;
             } else if (choice == "2") {
-                std::cout << COLOR_RED << "Are you sure? (yes/NO): " << COLOR_RESET;
+                std::cout << COLOR_CYAN << "Are you sure? (yes/NO): " << COLOR_RESET;
                 std::string confirm;
                 std::cin >> confirm;
                 if (confirm != "yes" && confirm != "YES" && confirm != "y" && confirm != "Y") {
@@ -920,12 +976,13 @@ public:
             return true;
         }
 
-        std::cout << COLOR_RED << "\n=== WARNING ===" << COLOR_RESET << std::endl;
-        std::cout << "This will convert your Arch Linux to immutable using systemd-nspawn.\n";
+        std::cout << COLOR_CYAN << "\n=== WARNING ===" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "This will convert your Arch Linux to immutable using systemd-nspawn.\n";
         std::cout << "Method: Creates SquashFS image with bind mount\n";
         std::cout << "Runs in: systemd-nspawn container\n";
+        std::cout << "The system will become immutable immediately after conversion.\n";
         std::cout << "Make sure you have backups!\n\n";
-        std::cout << COLOR_RED << "Type 'FREEZE' to proceed: " << COLOR_RESET;
+        std::cout << "Type 'FREEZE' to proceed: " << COLOR_RESET;
 
         std::string response;
         std::cin >> response;
@@ -941,7 +998,7 @@ public:
 
         logger.info("\n=== Creating System Backup ===");
         if (!backupSystem()) {
-            std::cout << COLOR_YELLOW << "Continue anyway? (y/N): " << COLOR_RESET;
+            std::cout << COLOR_CYAN << "Continue anyway? (y/N): " << COLOR_RESET;
             std::cin >> response;
             if (response != "y" && response != "Y") {
                 return false;
@@ -979,10 +1036,17 @@ public:
             logger.warn("Failed to create initial snapshot");
         }
 
+        logger.info("\n=== Step 6: Activating Immutable System ===");
+        if (!services->activateImmutableSystem()) {
+            logger.error("Failed to activate immutable system");
+            return false;
+        }
+
         std::ofstream marker("/var/lib/archfreeze/.converted");
         marker << "Arch Freeze conversion completed: " << time(0) << std::endl;
         marker << "Version: 1.0 (Systemd-nspawn)" << std::endl;
         marker << "Image: /var/lib/archfreeze/squashfs/rootfs.img" << std::endl;
+        marker << "Auto-started: yes" << std::endl;
         marker.close();
 
         printSummary();
@@ -993,24 +1057,23 @@ public:
 
 int main() {
     signal(SIGINT, [](int) {
-        std::cout << COLOR_RED << "\n\nInterrupted." << COLOR_RESET << std::endl;
-        std::cout << "Check /var/log/archfreeze.log for details." << std::endl;
+        std::cout << COLOR_CYAN << "\n\nInterrupted." << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "Check /var/log/archfreeze.log for details." << COLOR_RESET << std::endl;
         exit(1);
     });
 
     try {
         ImmutableArchConverter converter;
         if (converter.run()) {
-            std::cout << COLOR_GREEN << "\n✓ Conversion successful!" << COLOR_RESET << std::endl;
-            std::cout << COLOR_YELLOW << "\nTo start immutable system:" << COLOR_RESET << std::endl;
-            std::cout << "  archfreeze-lock" << std::endl;
+            std::cout << COLOR_CYAN << "\n✓ Conversion successful! System is now immutable." << COLOR_RESET << std::endl;
+            std::cout << COLOR_CYAN << "✓ After reboot, system will automatically start in immutable mode." << COLOR_RESET << std::endl;
             return 0;
         } else {
-            std::cerr << COLOR_RED << "\n✗ Conversion failed or was cancelled." << COLOR_RESET << std::endl;
+            std::cerr << COLOR_CYAN << "\n✗ Conversion failed or was cancelled." << COLOR_RESET << std::endl;
             return 1;
         }
     } catch (const std::exception& e) {
-        std::cerr << COLOR_RED << "Fatal error: " << e.what() << COLOR_RESET << std::endl;
+        std::cerr << COLOR_CYAN << "Fatal error: " << e.what() << COLOR_RESET << std::endl;
         return 1;
     }
 }
