@@ -144,7 +144,7 @@ public:
             std::string response;
             std::cin >> response;
             if (response != "y" && response != "Y") return false;
-        }
+            }
         logger.info("All system checks passed");
         return true;
     }
@@ -665,21 +665,33 @@ public:
             lock << "    # If not bound, just make current root read-only\n";
             lock << "    mount -o remount,ro / 2>/dev/null || true\n";
             lock << "fi\n";
+            lock << "# Set immutable attribute on critical files\n";
             lock << "chattr +i /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/fstab 2>/dev/null || true\n";
             lock << "echo \"[Arch Freeze] System is now immutable\"\n";
             lock << "logger \"Immutable system locked\"\n";
             lock.close();
 
-            // Unlock script - updated for bind mount approach
+            // === MODIFIED UNLOCK SCRIPT ===
             std::ofstream unlock("/usr/local/bin/archfreeze-unlock");
             unlock << "#!/bin/bash\n";
-            unlock << "# Unlock system for maintenance\n";
+            unlock << "# Unlock system for maintenance - ONLY reverses lock operations\n";
             unlock << "set -e\n\n";
-            unlock << "echo \"[Arch Freeze] Unlocking system for maintenance...\"\n";
+            unlock << "echo \"[Arch Freeze] Unlocking system for maintenance...\"\n\n";
+            unlock << "# 1. Remove immutable attributes from critical files (reverse chattr +i)\n";
             unlock << "chattr -i /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/fstab 2>/dev/null || true\n";
-            lock << "echo \"[Arch Freeze] System is now writable\"\n";
-            lock << "logger \"Immutable system unlocked for maintenance\"\n";
-            lock.close();
+            unlock << "chattr -i /etc/hostname /etc/hosts /etc/locale.conf /etc/localtime 2>/dev/null || true\n\n";
+            unlock << "# 2. Make root read-write to allow changes\n";
+            unlock << "mount -o remount,rw / 2>/dev/null || true\n\n";
+            unlock << "# 3. Restore standard write permissions on system directories\n";
+            unlock << "chmod 755 /bin /sbin /usr/bin /usr/sbin 2>/dev/null || true\n";
+            unlock << "chmod 755 /lib /lib64 /usr/lib /usr/lib64 2>/dev/null || true\n";
+            unlock << "chmod 755 /boot /opt /etc 2>/dev/null || true\n\n";
+            unlock << "# 4. Restore standard permissions for system directories\n";
+            unlock << "chmod 755 /var/lib 2>/dev/null || true\n";
+            unlock << "chmod 755 /usr/share 2>/dev/null || true\n\n";
+            unlock << "echo \"[Arch Freeze] System is now writable (lock state reversed)\"\n";
+            unlock << "logger \"Immutable system unlocked for maintenance\"\n";
+            unlock.close();
 
             // Status script
             std::ofstream status("/usr/local/bin/archfreeze-status");
@@ -691,9 +703,18 @@ public:
             status << "else\n";
             status << "    echo \"System: Mutable (Traditional)\"\n";
             status << "fi\n";
-            status << "echo \"Root filesystem: $(mount | grep ' / ' | awk '{print $6}' | cut -d, -f1)\"\n";
+            status << "ROOT_FS=\"$(mount | grep ' / ' | awk '{print $6}' | cut -d, -f1)\"\n";
+            status << "echo \"Root filesystem: $ROOT_FS\"\n";
+            status << "if [ \"$ROOT_FS\" = \"ro\" ]; then\n";
+            status << "    echo \"Root mount: Read-Only\"\n";
+            status << "else\n";
+            status << "    echo \"Root mount: Read-Write\"\n";
+            status << "fi\n";
             status << "echo \"Snapshots: $(ls /var/lib/archfreeze/snapshots/ 2>/dev/null | wc -l)\"\n";
             status << "echo \"Upper dir size: $(du -sh /var/lib/archfreeze/upper/ 2>/dev/null | cut -f1)\"\n";
+            status << "echo \"\nSystem services:\"\n";
+            status << "systemctl is-active archfreeze.service 2>/dev/null && echo \"archfreeze.service: active\" || echo \"archfreeze.service: inactive\"\n";
+            status << "systemctl is-active archfreeze-merged.mount 2>/dev/null && echo \"archfreeze-merged.mount: active\" || echo \"archfreeze-merged.mount: inactive\"\n";
             status.close();
 
             // Reload script
@@ -705,7 +726,7 @@ public:
             reload << "echo \"[Arch Freeze] Configuration reloaded\"\n";
             reload.close();
 
-            // Snapshot management
+            // Enhanced Snapshot management
             std::ofstream snapshot("/usr/local/bin/archfreeze-snapshot");
             snapshot << "#!/bin/bash\n";
             snapshot << "# Manage snapshots\n";
@@ -720,15 +741,21 @@ public:
             snapshot << "        fi\n";
             snapshot << "        echo \"[Arch Freeze] Creating snapshot: $NAME\"\n";
             snapshot << "        /usr/local/bin/archfreeze-unlock\n";
+            snapshot << "        mkdir -p /var/lib/archfreeze/snapshots/\"$NAME\"\n";
             snapshot << "        rsync -a --delete /var/lib/archfreeze/upper/ /var/lib/archfreeze/snapshots/\"$NAME\"/\n";
             snapshot << "        echo \"date=$(date +%s)\" > /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
             snapshot << "        echo \"name=$NAME\" >> /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
+            snapshot << "        echo \"description=Manual snapshot\" >> /var/lib/archfreeze/snapshots/\"$NAME\"/.metadata\n";
             snapshot << "        /usr/local/bin/archfreeze-lock\n";
             snapshot << "        echo \"[Arch Freeze] Snapshot $NAME created\"\n";
             snapshot << "        ;;\n";
             snapshot << "    restore)\n";
             snapshot << "        if [ -z \"$NAME\" ]; then\n";
             snapshot << "            echo \"Usage: $0 restore <name>\"\n";
+            snapshot << "            exit 1\n";
+            snapshot << "        fi\n";
+            snapshot << "        if [ ! -d \"/var/lib/archfreeze/snapshots/$NAME\" ]; then\n";
+            snapshot << "            echo \"Snapshot $NAME does not exist\"\n";
             snapshot << "            exit 1\n";
             snapshot << "        fi\n";
             snapshot << "        echo \"[Arch Freeze] Restoring snapshot: $NAME...\"\n";
@@ -740,41 +767,193 @@ public:
             snapshot << "        ;;\n";
             snapshot << "    list)\n";
             snapshot << "        echo \"Available snapshots:\"\n";
-            snapshot << "        ls -la /var/lib/archfreeze/snapshots/\n";
+            snapshot << "        for snap in /var/lib/archfreeze/snapshots/*/; do\n";
+            snapshot << "            if [ -f \"$snap/.metadata\" ]; then\n";
+            snapshot << "                SNAP_NAME=$(basename \"$snap\")\n";
+            snapshot << "                SNAP_DATE=$(grep '^date=' \"$snap/.metadata\" | cut -d= -f2)\n";
+            snapshot << "                if [ -n \"$SNAP_DATE\" ]; then\n";
+            snapshot << "                    DATE_STR=$(date -d @$SNAP_DATE 2>/dev/null || echo \"Unknown\")\n";
+            snapshot << "                    echo \"  $SNAP_NAME - $DATE_STR\"\n";
+            snapshot << "                else\n";
+            snapshot << "                    echo \"  $SNAP_NAME\"\n";
+            snapshot << "                fi\n";
+            snapshot << "            fi\n";
+            snapshot << "        done | sort\n";
             snapshot << "        ;;\n";
             snapshot << "    delete)\n";
             snapshot << "        if [ -z \"$NAME\" ]; then\n";
             snapshot << "            echo \"Usage: $0 delete <name>\"\n";
             snapshot << "            exit 1\n";
             snapshot << "        fi\n";
-            snapshot << "        rm -rf /var/lib/archfreeze/snapshots/\"$NAME\"\n";
+            snapshot << "        if [ ! -d \"/var/lib/archfreeze/snapshots/$NAME\" ]; then\n";
+            snapshot << "            echo \"Snapshot $NAME does not exist\"\n";
+            snapshot << "            exit 1\n";
+            snapshot << "        fi\n";
+            snapshot << "        rm -rf \"/var/lib/archfreeze/snapshots/$NAME\"\n";
             snapshot << "        echo \"Snapshot $NAME deleted\"\n";
             snapshot << "        ;;\n";
+            snapshot << "    info)\n";
+            snapshot << "        if [ -z \"$NAME\" ]; then\n";
+            snapshot << "            echo \"Usage: $0 info <name>\"\n";
+            snapshot << "            exit 1\n";
+            snapshot << "        fi\n";
+            snapshot << "        if [ ! -d \"/var/lib/archfreeze/snapshots/$NAME\" ]; then\n";
+            snapshot << "            echo \"Snapshot $NAME does not exist\"\n";
+            snapshot << "            exit 1\n";
+            snapshot << "        fi\n";
+            snapshot << "        echo \"Snapshot: $NAME\"\n";
+            snapshot << "        cat \"/var/lib/archfreeze/snapshots/$NAME/.metadata\" 2>/dev/null || echo \"No metadata\"\n";
+            snapshot << "        SIZE=$(du -sh \"/var/lib/archfreeze/snapshots/$NAME\" | cut -f1)\n";
+            snapshot << "        echo \"Size: $SIZE\"\n";
+            snapshot << "        ;;\n";
             snapshot << "    *)\n";
-            snapshot << "        echo \"Usage: $0 {create|restore|list|delete} [name]\"\n";
+            snapshot << "        echo \"Usage: $0 {create|restore|list|delete|info} [name]\"\n";
+            snapshot << "        echo \"\"\n";
+            snapshot << "        echo \"Examples:\"\n";
+            snapshot << "        echo \"  $0 create backup-2024\"\n";
+            snapshot << "        echo \"  $0 restore initial\"\n";
+            snapshot << "        echo \"  $0 list\"\n";
+            snapshot << "        echo \"  $0 delete old-backup\"\n";
+            snapshot << "        echo \"  $0 info initial\"\n";
             snapshot << "        ;;\n";
             snapshot << "esac\n";
             snapshot.close();
 
-            // Update script
+            // Enhanced update script
             std::ofstream update("/usr/local/bin/archfreeze-update");
             update << "#!/bin/bash\n";
             update << "# Safe system update\n";
             update << "set -e\n\n";
             update << "echo \"[Arch Freeze] Starting transactional update...\"\n";
+            update << "echo \"Current snapshot: $(ls /var/lib/archfreeze/snapshots/ | tail -1)\"\n\n";
             update << "/usr/local/bin/archfreeze-unlock\n\n";
             update << "# Create pre-update snapshot\n";
             update << "SNAPSHOT=\"update-$(date +%Y%m%d-%H%M%S)\"\n";
+            update << "echo \"Creating pre-update snapshot: $SNAPSHOT\"\n";
             update << "/usr/local/bin/archfreeze-snapshot create \"$SNAPSHOT\"\n\n";
             update << "# Perform update\n";
+            update << "echo \"Updating system...\"\n";
             update << "pacman -Syu --noconfirm\n";
-            update << "updatedb 2>/dev/null || true\n\n";
+            update << "echo \"Update completed\"\n\n";
             update << "# Create post-update snapshot\n";
-            update << "/usr/local/bin/archfreeze-snapshot create \"$SNAPSHOT-post\"\n";
+            update << "POST_SNAPSHOT=\"$SNAPSHOT-post\"\n";
+            update << "echo \"Creating post-update snapshot: $POST_SNAPSHOT\"\n";
+            update << "/usr/local/bin/archfreeze-snapshot create \"$POST_SNAPSHOT\"\n";
             update << "/usr/local/bin/archfreeze-lock\n\n";
-            update << "echo \"[Arch Freeze] Update complete. Snapshot: $SNAPSHOT\"\n";
-            update << "echo \"[Arch Freeze] Reboot to apply changes\"\n";
+            update << "echo \"[Arch Freeze] Update complete!\"\n";
+            update << "echo \"Snapshots created:\"\n";
+            update << "echo \"  - $SNAPSHOT (pre-update)\"\n";
+            update << "echo \"  - $POST_SNAPSHOT (post-update)\"\n";
+            update << "echo \"\"\n";
+            update << "echo \"To restore pre-update state:\"\n";
+            update << "echo \"  archfreeze-snapshot restore $SNAPSHOT\"\n";
+            update << "echo \"  reboot\"\n";
+            update << "echo \"\"\n";
+            update << "echo \"Reboot to apply changes:\"\n";
+            update << "echo \"  reboot\"\n";
             update.close();
+
+            // Repair script for existing installations
+            std::ofstream repair("/usr/local/bin/archfreeze-repair");
+            repair << "#!/bin/bash\n";
+            repair << "# Repair Arch Freeze installation\n";
+            repair << "set -e\n\n";
+            repair << "echo \"[Arch Freeze] Repairing installation...\"\n\n";
+            repair << "# Check if system is in immutable mode\n";
+            repair << "if mount | grep -q \" / .*ro\"; then\n";
+            repair << "    echo \"System is read-only, unlocking first...\"\n";
+            repair << "    /usr/local/bin/archfreeze-unlock\n";
+            repair << "fi\n\n";
+            repair << "# Ensure directories exist\n";
+            repair << "mkdir -p /var/lib/archfreeze/{upper,work,merged,snapshots,backup,config}\n\n";
+            repair << "# Ensure permissions\n";
+            repair << "chmod 755 /var/lib/archfreeze\n";
+            repair << "chmod 755 /var/lib/archfreeze/*\n\n";
+            repair << "# Ensure scripts are executable\n";
+            repair << "chmod +x /usr/local/bin/archfreeze-* 2>/dev/null || true\n\n";
+            repair << "# Reload systemd\n";
+            repair << "systemctl daemon-reload\n\n";
+            repair << "# Enable services if they exist\n";
+            repair << "systemctl enable archfreeze-merged.mount 2>/dev/null || true\n";
+            repair << "systemctl enable archfreeze-bindroot.service 2>/dev/null || true\n";
+            repair << "systemctl enable archfreeze.service 2>/dev/null || true\n\n";
+            repair << "echo \"[Arch Freeze] Repair completed\"\n";
+            repair << "echo \"Run 'archfreeze-status' to check system state\"\n";
+            repair.close();
+
+            // === MODIFIED FACTORY RESET SCRIPT ===
+            std::ofstream factory_reset("/usr/local/bin/archfreeze-factory-reset");
+            factory_reset << "#!/bin/bash\n";
+            factory_reset << "# Factory Reset - Completely removes Arch Freeze and restores original system\n";
+            factory_reset << "set -e\n\n";
+            factory_reset << "echo \"=== Arch Freeze Factory Reset ===\"\n";
+            factory_reset << "echo \"WARNING: This will COMPLETELY remove Arch Freeze and restore original system!\"\n";
+            factory_reset << "echo \"All overlay changes and snapshots will be lost!\"\n\n";
+            factory_reset << "read -p \"Type 'RESET' to confirm: \" CONFIRM\n";
+            factory_reset << "if [ \"$CONFIRM\" != \"RESET\" ]; then\n";
+            factory_reset << "    echo \"Reset cancelled\"\n";
+            factory_reset << "    exit 1\n";
+            factory_reset << "fi\n\n";
+            factory_reset << "echo \"[1/6] Unlocking system...\"\n";
+            factory_reset << "/usr/local/bin/archfreeze-unlock 2>/dev/null || true\n\n";
+            factory_reset << "echo \"[2/6] Stopping and disabling services...\"\n";
+            factory_reset << "systemctl stop archfreeze.service 2>/dev/null || true\n";
+            factory_reset << "systemctl stop archfreeze-bindroot.service 2>/dev/null || true\n";
+            factory_reset << "systemctl stop archfreeze-merged.mount 2>/dev/null || true\n";
+            factory_reset << "systemctl disable archfreeze.service 2>/dev/null || true\n";
+            factory_reset << "systemctl disable archfreeze-bindroot.service 2>/dev/null || true\n";
+            factory_reset << "systemctl disable archfreeze-merged.mount 2>/dev/null || true\n";
+            factory_reset << "systemctl disable archfreeze-timer.timer 2>/dev/null || true\n";
+            factory_reset << "systemctl disable archfreeze-status.service 2>/dev/null || true\n\n";
+            factory_reset << "echo \"[3/6] Unbinding and unmounting overlay...\"\n";
+            factory_reset << "umount / 2>/dev/null || true\n";
+            factory_reset << "umount /var/lib/archfreeze/merged 2>/dev/null || true\n";
+            factory_reset << "mount -o remount,rw / 2>/dev/null || true\n\n";
+            factory_reset << "echo \"[4/6] Removing systemd units...\"\n";
+            factory_reset << "rm -f /etc/systemd/system/archfreeze*.service 2>/dev/null || true\n";
+            factory_reset << "rm -f /etc/systemd/system/archfreeze*.mount 2>/dev/null || true\n";
+            factory_reset << "rm -f /etc/systemd/system/archfreeze*.timer 2>/dev/null || true\n";
+            factory_reset << "systemctl daemon-reload\n\n";
+            factory_reset << "echo \"[5/6] Removing Arch Freeze scripts and configuration...\"\n";
+            factory_reset << "rm -f /usr/local/bin/archfreeze-* 2>/dev/null || true\n";
+            factory_reset << "rm -f /etc/initcpio/install/archfreeze 2>/dev/null || true\n";
+            factory_reset << "rm -f /etc/initcpio/hooks/archfreeze 2>/dev/null || true\n\n";
+            factory_reset << "# Remove overlay entry from fstab\n";
+            factory_reset << "if [ -f \"/etc/fstab.backup\" ]; then\n";
+            factory_reset << "    echo \"Restoring original fstab...\"\n";
+            factory_reset << "    cp -f /etc/fstab.backup /etc/fstab 2>/dev/null || true\n";
+            factory_reset << "else\n";
+            factory_reset << "    # Remove archfreeze lines from fstab\n";
+            factory_reset << "    grep -v \"archfreeze\" /etc/fstab > /tmp/fstab.tmp && mv /tmp/fstab.tmp /etc/fstab 2>/dev/null || true\n";
+            factory_reset << "fi\n\n";
+            factory_reset << "echo \"[6/6] Cleaning up overlay data...\"\n";
+            factory_reset << "# Remove Arch Freeze data directories (ask user first)\n";
+            factory_reset << "read -p \"Remove ALL Arch Freeze data in /var/lib/archfreeze? (y/N): \" REMOVE_DATA\n";
+            factory_reset << "if [ \"$REMOVE_DATA\" = \"y\" ] || [ \"$REMOVE_DATA\" = \"Y\" ]; then\n";
+            factory_reset << "    rm -rf /var/lib/archfreeze 2>/dev/null || true\n";
+            factory_reset << "    echo \"All Arch Freeze data removed\"\n";
+            factory_reset << "else\n";
+            factory_reset << "    echo \"Arch Freeze data preserved in /var/lib/archfreeze/\"\n";
+            factory_reset << "fi\n\n";
+            factory_reset << "# Restore original mkinitcpio config\n";
+            factory_reset << "if [ -f \"/etc/mkinitcpio.conf.backup\" ]; then\n";
+            factory_reset << "    cp -f /etc/mkinitcpio.conf.backup /etc/mkinitcpio.conf 2>/dev/null || true\n";
+            factory_reset << "    mkinitcpio -p 2>/dev/null || true\n";
+            factory_reset << "fi\n\n";
+            factory_reset << "# Ensure root is properly mounted read-write\n";
+            factory_reset << "mount -o remount,rw / 2>/dev/null || true\n\n";
+            factory_reset << "echo \"=========================================\"\n";
+            factory_reset << "echo \"FACTORY RESET COMPLETE!\"\n";
+            factory_reset << "echo \"System has been restored to original state.\"\n";
+            factory_reset << "echo \"\"\n";
+            factory_reset << "echo \"To verify:\"\n";
+            factory_reset << "echo \"1. Root filesystem should be read-write\"\n";
+            factory_reset << "echo \"2. No archfreeze services should be running\"\n";
+            factory_reset << "echo \"3. Standard Arch Linux permissions restored\"\n";
+            factory_reset << "echo \"\"\n";
+            factory_reset << "echo \"Reboot recommended to ensure clean state.\"\n";
+            factory_reset << "echo \"=========================================\"\n";
+            factory_reset.close();
 
             // Set executable permissions
             std::vector<std::string> scripts = {
@@ -784,6 +963,8 @@ public:
                 "/usr/local/bin/archfreeze-reload",
                 "/usr/local/bin/archfreeze-snapshot",
                 "/usr/local/bin/archfreeze-update",
+                "/usr/local/bin/archfreeze-repair",
+                "/usr/local/bin/archfreeze-factory-reset",
                 "/usr/local/bin/archfreeze-bind-root",
                 "/usr/local/bin/archfreeze-unbind-root"
             };
@@ -926,16 +1107,16 @@ public:
             recovery << "echo \"3. Fix boot issues\"\n";
             recovery << "echo \"4. Check system integrity\"\n";
             recovery << "echo \"5. Emergency shell\"\n";
+            recovery << "echo \"6. Repair Arch Freeze installation\"\n";
             recovery << "read -p \"Select option: \" OPTION\n\n";
             recovery << "case $OPTION in\n";
             recovery << "    1)\n";
-            recovery << "        echo \"Resetting to factory state...\"\n";
-            recovery << "        rm -rf /var/lib/archfreeze/upper/*\n";
-            recovery << "        echo \"Reset complete. Reboot required.\"\n";
+            recovery << "        echo \"Running factory reset...\"\n";
+            recovery << "        /usr/local/bin/archfreeze-factory-reset\n";
             recovery << "        ;;\n";
             recovery << "    2)\n";
             recovery << "        echo \"Available snapshots:\"\n";
-            recovery << "        ls /var/lib/archfreeze/snapshots/\n";
+            recovery << "        /usr/local/bin/archfreeze-snapshot list\n";
             recovery << "        read -p \"Enter snapshot name: \" SNAP\n";
             recovery << "        /usr/local/bin/archfreeze-snapshot restore \"$SNAP\"\n";
             recovery << "        ;;\n";
@@ -943,10 +1124,12 @@ public:
             recovery << "        echo \"Fixing boot issues...\"\n";
             recovery << "        mount -o remount,rw / 2>/dev/null\n";
             recovery << "        if command -v grub-install &> /dev/null; then\n";
+            recovery << "            echo \"Reinstalling GRUB...\"\n";
             recovery << "            grub-install /dev/sda 2>/dev/null\n";
             recovery << "            grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null\n";
             recovery << "        fi\n";
             recovery << "        if command -v mkinitcpio &> /dev/null; then\n";
+            recovery << "            echo \"Rebuilding initramfs...\"\n";
             recovery << "            mkinitcpio -p 2>/dev/null\n";
             recovery << "        fi\n";
             recovery << "        mount -o remount,ro / 2>/dev/null\n";
@@ -965,6 +1148,9 @@ public:
             recovery << "    5)\n";
             recovery << "        echo \"Dropping to emergency shell...\"\n";
             recovery << "        /bin/bash\n";
+            recovery << "        ;;\n";
+            recovery << "    6)\n";
+            recovery << "        /usr/local/bin/archfreeze-repair\n";
             recovery << "        ;;\n";
             recovery << "    *)\n";
             recovery << "        echo \"Invalid option\"\n";
@@ -1002,7 +1188,7 @@ private:
         std::cout << "██║░░██╗██║░░░░░██╔══██║██║░░░██║██║░░██║██╔══╝░░██║╚██╔╝██║██║░░██║██║░░██║░╚═══██╗" << std::endl;
         std::cout << "╚█████╔╝███████╗██║░░██║╚██████╔╝██████╔╝███████╗██║░╚═╝░██║╚█████╔╝██████╔╝██████╔╝" << std::endl;
         std::cout << "░╚════╝░╚══════╝╚═╝░░░░░░╚═════╝░╚═════╝░╚══════╝╚═╝░░░░░╚═╝░╚════╝░╚═════╝░╚═════╝░" << std::endl;
-        std::cout << COLOR_CYAN << "\nclaudemods Arch Freeze Beta v1.0 18-12-2025" << COLOR_RESET << std::endl;
+        std::cout << COLOR_CYAN << "\nclaudemods Arch Freeze Beta v1.0 19-12-2025" << COLOR_RESET << std::endl;
         std::cout << COLOR_MAGENTA << "=" << std::string(70, '=') << "=" << COLOR_RESET << std::endl << std::endl;
     }
 
@@ -1055,12 +1241,14 @@ private:
         std::cout << COLOR_GREEN << "\n✓ Your Arch system is now immutable." << COLOR_RESET << std::endl;
 
         std::cout << COLOR_CYAN << "\nIMPORTANT COMMANDS:" << COLOR_RESET << std::endl;
-        std::cout << "  archfreeze-lock      - Lock system to read-only" << std::endl;
-        std::cout << "  archfreeze-unlock    - Unlock for maintenance" << std::endl;
-        std::cout << "  archfreeze-status    - Check system status" << std::endl;
-        std::cout << "  archfreeze-update    - Safe system update with snapshots" << std::endl;
-        std::cout << "  archfreeze-snapshot  - Manage snapshots" << std::endl;
-        std::cout << "  archfreeze-recovery  - Emergency recovery" << std::endl;
+        std::cout << "  archfreeze-lock          - Lock system to read-only" << std::endl;
+        std::cout << "  archfreeze-unlock        - Unlock for maintenance (reverses lock)" << std::endl;
+        std::cout << "  archfreeze-status        - Check system status" << std::endl;
+        std::cout << "  archfreeze-update        - Safe system update with snapshots" << std::endl;
+        std::cout << "  archfreeze-snapshot      - Manage snapshots" << std::endl;
+        std::cout << "  archfreeze-recovery      - Emergency recovery" << std::endl;
+        std::cout << "  archfreeze-repair        - Repair installation" << std::endl;
+        std::cout << "  archfreeze-factory-reset - COMPLETELY remove Arch Freeze" << std::endl;
 
         std::cout << COLOR_YELLOW << "\nNEXT STEPS:" << COLOR_RESET << std::endl;
         std::cout << "1. REBOOT your system" << std::endl;
@@ -1072,6 +1260,38 @@ private:
         std::cout << COLOR_MAGENTA << "\nLog file: " << COLOR_RESET << "/var/log/archfreeze.log" << std::endl;
         std::cout << COLOR_MAGENTA << "Configuration: " << COLOR_RESET << "/var/lib/archfreeze/" << std::endl;
         std::cout << COLOR_MAGENTA << "=" << std::string(70, '=') << "=" << COLOR_RESET << std::endl;
+    }
+
+    bool checkExistingInstallation() {
+        if (fs::exists("/var/lib/archfreeze/.converted")) {
+            logger.warn("System is already converted to immutable.");
+            std::cout << COLOR_YELLOW << "What would you like to do?\n";
+            std::cout << "1. Repair existing installation\n";
+            std::cout << "2. Re-run full conversion (overwrites existing)\n";
+            std::cout << "3. Exit\n";
+            std::cout << "Choice (1-3): " << COLOR_RESET;
+            
+            std::string choice;
+            std::cin >> choice;
+            
+            if (choice == "1") {
+                // Run repair
+                logger.info("Running repair for existing installation...");
+                system("/usr/local/bin/archfreeze-repair 2>/dev/null || echo 'Repair script not found'");
+                return false;
+            } else if (choice == "2") {
+                std::cout << COLOR_RED << "Are you sure? This will overwrite existing configuration. (yes/NO): " << COLOR_RESET;
+                std::string confirm;
+                std::cin >> confirm;
+                if (confirm != "yes" && confirm != "YES" && confirm != "y" && confirm != "Y") {
+                    return false;
+                }
+                return true; // Continue with conversion
+            } else {
+                return false;
+            }
+        }
+        return true;
     }
 
 public:
@@ -1088,18 +1308,12 @@ public:
         display_header();
 
         logger.info("Starting Immutable Arch Conversion");
-        logger.info("Version: 1.1 - Arch Freeze (Fixed Mount Issue)");
+        logger.info("Version: 1.2 - Arch Freeze (Fixed Unlock Command)");
         logger.info("Date: " + std::string(__DATE__) + " " + std::string(__TIME__));
 
-        // Check if already converted
-        if (fs::exists("/var/lib/archfreeze/.converted")) {
-            logger.warn("System is already converted to immutable.");
-            std::cout << COLOR_YELLOW << "Re-run conversion? (y/N): " << COLOR_RESET;
-            std::string response;
-            std::cin >> response;
-            if (response != "y" && response != "Y") {
-                return false;
-            }
+        // Check if already converted and ask user
+        if (!checkExistingInstallation()) {
+            return true; // Exit gracefully if repair was run or user chose to exit
         }
 
         // Get confirmation
@@ -1197,10 +1411,19 @@ public:
         // Mark as converted
         std::ofstream marker("/var/lib/archfreeze/.converted");
         marker << "Arch Freeze conversion completed: " << time(0) << std::endl;
-        marker << "Version: 1.1 (Fixed mount issue)" << std::endl;
+        marker << "Version: 1.0 (Fixed unlock command)" << std::endl;
         marker << "Upper dir: /var/lib/archfreeze/upper" << std::endl;
         marker << "Work dir: /var/lib/archfreeze/work" << std::endl;
         marker << "Merged dir: /var/lib/archfreeze/merged" << std::endl;
+        marker << "Commands:" << std::endl;
+        marker << "  lock: archfreeze-lock" << std::endl;
+        marker << "  unlock: archfreeze-unlock" << std::endl;
+        marker << "  status: archfreeze-status" << std::endl;
+        marker << "  update: archfreeze-update" << std::endl;
+        marker << "  snapshot: archfreeze-snapshot" << std::endl;
+        marker << "  recovery: archfreeze-recovery" << std::endl;
+        marker << "  repair: archfreeze-repair" << std::endl;
+        marker << "  factory-reset: archfreeze-factory-reset" << std::endl;
         marker.close();
 
         // Print summary
@@ -1223,9 +1446,13 @@ int main() {
         if (converter.run()) {
             std::cout << COLOR_GREEN << "\n✓ Conversion successful!" << COLOR_RESET << std::endl;
             std::cout << COLOR_YELLOW << "⚠  REBOOT REQUIRED to complete installation." << COLOR_RESET << std::endl;
+            std::cout << COLOR_CYAN << "\nAfter reboot, you can use these commands:\n";
+            std::cout << "  archfreeze-lock    - Make system read-only\n";
+            std::cout << "  archfreeze-unlock  - Make system writable (reverses lock)\n";
+            std::cout << "  archfreeze-status  - Check current state" << COLOR_RESET << std::endl;
             return 0;
         } else {
-            std::cerr << COLOR_RED << "\n✗ Conversion failed." << COLOR_RESET << std::endl;
+            std::cerr << COLOR_RED << "\n✗ Conversion failed or was cancelled." << COLOR_RESET << std::endl;
             std::cerr << "Check /var/log/archfreeze.log for details." << std::endl;
             return 1;
         }
