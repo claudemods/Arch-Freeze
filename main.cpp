@@ -1,4 +1,4 @@
-analyze this script analyze this script #include <iostream>
+#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <string>
