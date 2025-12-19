@@ -682,6 +682,7 @@ public:
             unlock << "chattr -i /etc/hostname /etc/hosts /etc/locale.conf /etc/localtime 2>/dev/null || true\n\n";
             unlock << "# 2. Make root read-write to allow changes\n";
             unlock << "mount -o remount,rw / 2>/dev/null || true\n\n";
+            unlock << "rm -rf /var/lib/pacman/db.lck 2>/dev/null || true\n\n";
             unlock << "# 3. Restore standard write permissions on system directories\n";
             unlock << "chmod 755 /bin /sbin /usr/bin /usr/sbin 2>/dev/null || true\n";
             unlock << "chmod 755 /lib /lib64 /usr/lib /usr/lib64 2>/dev/null || true\n";
@@ -909,6 +910,7 @@ public:
             factory_reset << "umount / 2>/dev/null || true\n";
             factory_reset << "umount /var/lib/archfreeze/merged 2>/dev/null || true\n";
             factory_reset << "mount -o remount,rw / 2>/dev/null || true\n\n";
+            factory_reset << "rm -rf /var/lib/pacman/db.lck / 2>/dev/null || true\n\n";
             factory_reset << "echo \"[4/6] Removing systemd units...\"\n";
             factory_reset << "rm -f /etc/systemd/system/archfreeze*.service 2>/dev/null || true\n";
             factory_reset << "rm -f /etc/systemd/system/archfreeze*.mount 2>/dev/null || true\n";
