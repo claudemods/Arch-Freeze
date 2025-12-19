@@ -1,0 +1,31 @@
+Dec 19 13:55:53 spitfire systemd-nspawn[655]: ░ Spawning container rootfs.img on /var/lib/archfreeze/squashfs/rootfs.img.
+Dec 19 13:55:53 spitfire systemd-nspawn[657]: Host and machine ids are equal (0236a567713b4c21b46744310e27db4a): refusing to link journals
+Dec 19 13:55:53 spitfire systemd-nspawn[657]: Failed to mount n/a (type n/a) on /run/host/incoming (MS_SLAVE ""): No such file or directory
+Dec 19 13:55:53 spitfire systemd[1]: archfreeze-nspawn.service: Main process exited, code=exited, status=1/FAILURE
+Dec 19 13:55:53 spitfire systemd[1]: archfreeze-nspawn.service: Failed with result 'exit-code'.
+Dec 19 13:55:53 spitfire systemd[1]: archfreeze-nspawn.service: Scheduled restart job, restart counter is at 2.
+Dec 19 13:55:53 spitfire systemd[1]: Started Arch Freeze Nspawn Container.
+Dec 19 13:55:53 spitfire systemd-nspawn[659]: ░ Spawning container rootfs.img on /var/lib/archfreeze/squashfs/rootfs.img.
+Dec 19 13:55:53 spitfire systemd-nspawn[661]: Host and machine ids are equal (0236a567713b4c21b46744310e27db4a): refusing to link journals
+Dec 19 13:55:53 spitfire systemd-nspawn[661]: Failed to mount n/a (type n/a) on /run/host/incoming (MS_SLAVE ""): No such file or directory
+Dec 19 13:55:53 spitfire systemd[1]: archfreeze-nspawn.service: Main process exited, code=exited, status=1/FAILURE
+Dec 19 13:55:53 spitfire systemd[1]: archfreeze-nspawn.service: Failed with result 'exit-code'.
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Scheduled restart job, restart counter is at 3.
+Dec 19 13:55:54 spitfire systemd[1]: Started Arch Freeze Nspawn Container.
+Dec 19 13:55:54 spitfire systemd-nspawn[664]: ░ Spawning container rootfs.img on /var/lib/archfreeze/squashfs/rootfs.img.
+Dec 19 13:55:54 spitfire systemd-nspawn[666]: Host and machine ids are equal (0236a567713b4c21b46744310e27db4a): refusing to link journals
+Dec 19 13:55:54 spitfire systemd-nspawn[666]: Failed to mount n/a (type n/a) on /run/host/incoming (MS_SLAVE ""): No such file or directory
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Main process exited, code=exited, status=1/FAILURE
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Failed with result 'exit-code'.
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Scheduled restart job, restart counter is at 4.
+Dec 19 13:55:54 spitfire systemd[1]: Started Arch Freeze Nspawn Container.
+Dec 19 13:55:54 spitfire systemd-nspawn[668]: ░ Spawning container rootfs.img on /var/lib/archfreeze/squashfs/rootfs.img.
+Dec 19 13:55:54 spitfire systemd-nspawn[669]: Host and machine ids are equal (0236a567713b4c21b46744310e27db4a): refusing to link journals
+Dec 19 13:55:54 spitfire systemd-nspawn[669]: Failed to mount n/a (type n/a) on /run/host/incoming (MS_SLAVE ""): No such file or directory
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Main process exited, code=exited, status=1/FAILURE
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Failed with result 'exit-code'.
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Scheduled restart job, restart counter is at 5.
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Start request repeated too quickly.
+Dec 19 13:55:54 spitfire systemd[1]: archfreeze-nspawn.service: Failed with result 'exit-code'.
+Dec 19 13:55:54 spitfire systemd[1]: Failed to start Arch Freeze Nspawn Container.
+
