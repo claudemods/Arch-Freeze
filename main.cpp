@@ -227,8 +227,6 @@ public:
             cmd += "-e proc/* ";
             cmd += "-e sys/* ";
             cmd += "-e tmp/* ";
-            cmd += "-e tmp ";
-            cmd += "-e home ";
             cmd += "-e home/* ";
             cmd += "-e run/* ";
             cmd += "-e mnt/* ";
