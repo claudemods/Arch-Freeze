@@ -123,17 +123,17 @@ void capture_and_display_rsync_output(const std::vector<std::string>& command) {
 void nameContainer() {
     std::cout << COLOR_CYAN << "\n=== OPTION 1: Name Container ===\n" << COLOR_RESET;
     std::cout << COLOR_CYAN << "Enter container name: " << COLOR_RESET;
-    
+
     // Clear input buffer
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    
+
     std::getline(std::cin, container_name);
-    
+
     if (container_name.empty()) {
         std::cout << COLOR_RED << "Container name cannot be empty!" << COLOR_RESET << std::endl;
         return;
     }
-    
+
     std::cout << COLOR_GREEN << "✓ Container name set to: " << container_name << COLOR_RESET << std::endl;
     std::cout << COLOR_YELLOW << "Note: Now select Option 2 to create it.\n" << COLOR_RESET << std::endl;
 }
@@ -144,9 +144,9 @@ void createContainer() {
         std::cout << COLOR_RED << "Error: No container name set. Use Option 1 first!\n" << COLOR_RESET << std::endl;
         return;
     }
-    
+
     std::cout << COLOR_CYAN << "\n=== OPTION 2: Creating Container '" << container_name << "' ===\n" << COLOR_RESET;
-    
+
     std::string rootfs_path = "/var/lib/incus/storage-pools/default/containers/" + container_name + "/rootfs";
 
     // Create base container with privileged mode using archlinux image
@@ -186,7 +186,7 @@ void createContainer() {
         "/",
         rootfs_path + "/"
     };
-    
+
     capture_and_display_rsync_output(rsync_cmd);
     std::cout << COLOR_GREEN << "✓ System cloned successfully" << COLOR_RESET << std::endl;
 
@@ -208,41 +208,41 @@ void createContainer() {
 // Setup container to be the boot target
 void setupContainerBoot(const std::string& container_name) {
     std::cout << COLOR_CYAN << "\n=== Setting up container as boot target ===" << COLOR_RESET << std::endl;
-    
+
     // 1. Make container immutable
     system(("sudo incus config set " + container_name + " security.protection.delete=true").c_str());
     system(("sudo incus config set " + container_name + " security.privileged=true").c_str());
-    
+
     // 2. Setup auto-start
     system(("sudo incus config set " + container_name + " boot.autostart=true").c_str());
     system(("sudo incus config set " + container_name + " boot.autostart.delay=5").c_str());
-    
+
     // 3. Detect login manager from cloned system
     std::string login_manager = "";
     std::vector<std::string> managers = {"sddm", "gdm", "lightdm", "lxdm"};
-    
+
     for (const auto& manager : managers) {
-        std::string check_cmd = "sudo incus exec " + container_name + 
-                               " -- systemctl list-unit-files | grep -q \"^" + manager + "\\.service\"";
+        std::string check_cmd = "sudo incus exec " + container_name +
+        " -- systemctl list-unit-files | grep -q \"^" + manager + "\\.service\"";
         if (system(check_cmd.c_str()) == 0) {
             login_manager = manager;
             break;
         }
     }
-    
+
     if (!login_manager.empty()) {
         std::cout << COLOR_GREEN << "Found login manager: " << login_manager << COLOR_RESET << std::endl;
         system(("sudo incus exec " + container_name + " -- systemctl enable " + login_manager).c_str());
     } else {
         std::cout << COLOR_YELLOW << "No login manager found." << COLOR_RESET << std::endl;
     }
-    
+
     // 4. Setup hardware access
     system(("sudo incus config device add " + container_name + " gpu gpu").c_str());
     system(("sudo incus config device add " + container_name + " wayland unix-char path=/run/user/1000/wayland-0").c_str());
     system(("sudo incus config device add " + container_name + " x11 unix-char path=/tmp/.X11-unix/X0").c_str());
     system(("sudo incus config device add " + container_name + " pulseaudio unix-char path=/run/user/1000/pulse/native").c_str());
-    
+
     std::cout << COLOR_GREEN << "\n✓ Container setup complete!" << COLOR_RESET << std::endl;
     std::cout << COLOR_YELLOW << "\nReboot to use container as main system: sudo reboot\n" << COLOR_RESET << std::endl;
 }
@@ -250,17 +250,17 @@ void setupContainerBoot(const std::string& container_name) {
 // Show fucking menu
 void showMenu() {
     int choice = 0;
-    
+
     do {
         std::cout << COLOR_CYAN << "\n=== Arch Freeze MENU ===\n" << COLOR_RESET;
-        std::cout << "Current container: " << (container_name.empty() ? COLOR_RED + "NOT SET" + COLOR_RESET : COLOR_GREEN + container_name + COLOR_RESET) << "\n";
+        std::cout << "Current container: " << (container_name.empty() ? std::string(COLOR_RED) + "NOT SET" + COLOR_RESET : std::string(COLOR_GREEN) + container_name + COLOR_RESET) << "\n";
         std::cout << COLOR_YELLOW << "1. Name Container\n";
         std::cout << "2. Create Container (clone system)\n";
         std::cout << "3. Exit\n" << COLOR_RESET;
         std::cout << COLOR_CYAN << "Choice [1-3]: " << COLOR_RESET;
-        
+
         std::cin >> choice;
-        
+
         switch(choice) {
             case 1:
                 nameContainer();
@@ -274,26 +274,26 @@ void showMenu() {
             default:
                 std::cout << COLOR_RED << "Invalid choice!\n" << COLOR_RESET;
         }
-        
+
     } while (choice != 3);
 }
 
 int main() {
     std::cout << APEX_ART;
     std::cout << COLOR_CYAN << "claudemods Arch Freeze Beta v1.0\n" << COLOR_RESET;
-    
+
     // Quick check for Arch
     if (system("grep -q 'ID=arch' /etc/os-release 2>/dev/null") != 0) {
         std::cout << COLOR_RED << "This tool only works on Arch Linux!\n" << COLOR_RESET;
         return 1;
     }
-    
+
     // Quick check for Incus
     if (system("command -v incus &> /dev/null") != 0) {
         std::cout << COLOR_RED << "Incus is not installed!\n" << COLOR_RESET;
         return 1;
     }
-    
+
     showMenu();
     return 0;
 }
