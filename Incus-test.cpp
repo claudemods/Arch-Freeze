@@ -41,32 +41,15 @@ const std::string APEX_ART = COLOR_RED R"(
 )" COLOR_RESET;
 
 // Function declarations
-bool checkIncus();
-void importToIncus();
-void cleanTempDirs();
-std::string getUsername();
+void createContainer();
 void run_command(const std::string& command, bool show_output = true);
 void capture_and_display_rsync_output(const std::vector<std::string>& command);
 void setupContainerBoot(const std::string& container_name);
 
-// Helper function to get current username
-std::string getUsername() {
-    const char* user = getenv("USER");
-    return user ? std::string(user) : "user";
-}
+// Global container name
+std::string container_name = "";
 
-// Clean temporary directories
-void cleanTempDirs() {
-    std::cout << COLOR_CYAN << "Cleaning temporary directories..." << COLOR_RESET << std::endl;
-    system("sudo rm -rf /opt/img_extract");
-    system("sudo rm -rf /opt/squashfs");
-    system("sudo rm -rf /mnt/temp");
-    std::string username = getUsername();
-    system(("sudo rm -rf /home/" + username + "/.config/Accu/clone_*").c_str());
-    std::cout << COLOR_GREEN << "Temporary directories cleaned successfully." << COLOR_RESET << std::endl;
-}
-
-// Run system command with cyan terminal and improved output
+// Run system command
 void run_command(const std::string& command, bool show_output) {
     std::cout << COLOR_CYAN << "\nProcessing..." << COLOR_RESET << std::endl;
     if (show_output) {
@@ -136,50 +119,46 @@ void capture_and_display_rsync_output(const std::vector<std::string>& command) {
     std::cout << COLOR_GREEN << "Data transfer completed." << COLOR_RESET << std::endl;
 }
 
-// Incus check function
-bool checkIncus() {
-    if (system("command -v incus &> /dev/null") != 0) {
-        std::cout << COLOR_RED << "Incus is not installed. Please install Incus first." << COLOR_RESET << std::endl;
-        return false;
-    }
-
-    // Check if Incus is running, start if not
-    if (system("incus list &> /dev/null") != 0) {
-        std::cout << COLOR_CYAN << "Starting Incus service..." << COLOR_RESET << std::endl;
-        system("sudo systemctl start incus &> /dev/null");
-        system("sudo systemctl enable incus &> /dev/null");
-    }
-
-    return true;
-}
-
-// FIXED importToIncus FUNCTION - Removed problematic std::cin.ignore()
-void importToIncus() {
-    // Get container name from user
-    std::string container_name;
+// OPTION 1: Name the fucking container
+void nameContainer() {
+    std::cout << COLOR_CYAN << "\n=== OPTION 1: Name Container ===\n" << COLOR_RESET;
     std::cout << COLOR_CYAN << "Enter container name: " << COLOR_RESET;
-    // REMOVED: std::cin.ignore(); // THIS WAS CAUSING THE HANG
+    
+    // Clear input buffer
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    
     std::getline(std::cin, container_name);
     
-    // Validate container name
     if (container_name.empty()) {
         std::cout << COLOR_RED << "Container name cannot be empty!" << COLOR_RESET << std::endl;
         return;
     }
     
+    std::cout << COLOR_GREEN << "✓ Container name set to: " << container_name << COLOR_RESET << std::endl;
+    std::cout << COLOR_YELLOW << "Note: Now select Option 2 to create it.\n" << COLOR_RESET << std::endl;
+}
+
+// OPTION 2: Create the fucking container
+void createContainer() {
+    if (container_name.empty()) {
+        std::cout << COLOR_RED << "Error: No container name set. Use Option 1 first!\n" << COLOR_RESET << std::endl;
+        return;
+    }
+    
+    std::cout << COLOR_CYAN << "\n=== OPTION 2: Creating Container '" << container_name << "' ===\n" << COLOR_RESET;
+    
     std::string rootfs_path = "/var/lib/incus/storage-pools/default/containers/" + container_name + "/rootfs";
 
     // Create base container with privileged mode using archlinux image
-    std::cout << COLOR_CYAN << "Creating base container with privileged mode using Arch Linux..." << COLOR_RESET << std::endl;
-    std::string cmd = "sudo incus launch images:archlinux " + container_name +
-    " -c security.privileged=true";
+    std::cout << COLOR_CYAN << "1. Creating base container..." << COLOR_RESET << std::endl;
+    std::string cmd = "sudo incus launch images:archlinux " + container_name + " -c security.privileged=true";
     run_command(cmd);
 
     // Prompt user to manually stop container
-    std::cout << COLOR_YELLOW << "\nIMPORTANT: Before proceeding, please manually stop the container using this command:\n";
-    std::cout << "sudo incus stop " << container_name << COLOR_RESET << std::endl;
-    std::cout << COLOR_CYAN << "Press Enter to continue after stopping the container..." << COLOR_RESET;
-    std::cin.ignore();
+    std::cout << COLOR_YELLOW << "\n2. IMPORTANT: Manually stop the container using:\n";
+    std::cout << "   sudo incus stop " << container_name << COLOR_RESET << std::endl;
+    std::cout << COLOR_CYAN << "Press Enter after stopping the container..." << COLOR_RESET;
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
 
     // Verify container is stopped
@@ -189,12 +168,12 @@ void importToIncus() {
     }
 
     // Clear existing rootfs contents
-    std::cout << COLOR_CYAN << "Clearing existing rootfs contents..." << COLOR_RESET << std::endl;
+    std::cout << COLOR_CYAN << "3. Clearing existing rootfs..." << COLOR_RESET << std::endl;
     cmd = "sudo rm -rf " + rootfs_path + "/*";
     run_command(cmd);
 
-    // SINGLE RSYNC COMMAND - Clone system excluding special directories (including /usr)
-    std::cout << COLOR_CYAN << "Starting system copy..." << COLOR_RESET << std::endl;
+    // SINGLE RSYNC COMMAND - Clone system excluding special directories
+    std::cout << COLOR_CYAN << "4. Cloning system to container..." << COLOR_RESET << std::endl;
     std::vector<std::string> rsync_cmd = {
         "sudo", "rsync", "-aHAXxSr", "--numeric-ids", "--info=progress2",
         "--exclude=/dev/*", "--exclude=/proc/*", "--exclude=/sys/*",
@@ -209,50 +188,24 @@ void importToIncus() {
     };
     
     capture_and_display_rsync_output(rsync_cmd);
-    std::cout << COLOR_GREEN << "System copy completed" << COLOR_RESET << std::endl;
+    std::cout << COLOR_GREEN << "✓ System cloned successfully" << COLOR_RESET << std::endl;
 
     // Start container
-    std::cout << COLOR_CYAN << "Starting container..." << COLOR_RESET << std::endl;
+    std::cout << COLOR_CYAN << "5. Starting container..." << COLOR_RESET << std::endl;
     cmd = "sudo incus start " + container_name;
     run_command(cmd);
 
-    // NEW: Setup container boot
+    // Setup container boot
+    std::cout << COLOR_CYAN << "6. Setting up container boot..." << COLOR_RESET << std::endl;
     setupContainerBoot(container_name);
 
     // Execute bash in container
     cmd = "sudo incus exec " + container_name + " -- /bin/bash";
-    std::cout << COLOR_CYAN << "Launching Incus container: " << container_name << COLOR_RESET << std::endl;
+    std::cout << COLOR_CYAN << "7. Launching container shell..." << COLOR_RESET << std::endl;
     system(cmd.c_str());
 }
 
-int main() {
-    std::cout << APEX_ART;
-    std::cout << COLOR_CYAN << "claudemods Arch Freeze Beta v1.0 20-12-2025\n" << COLOR_RESET;
-    std::cout << COLOR_YELLOW << "Note: This tool only works on Arch Linux systems\n" << COLOR_RESET;
-
-    // Check if running on Arch Linux
-    std::cout << COLOR_CYAN << "Verifying Arch Linux system..." << COLOR_RESET << std::endl;
-    if (system("grep -q 'ID=arch' /etc/os-release 2>/dev/null") != 0) {
-        std::cout << COLOR_RED << "This tool only works on Arch Linux systems!" << COLOR_RESET << std::endl;
-        cleanTempDirs();
-        return 1;
-    }
-
-    // Check if Incus is installed
-    if (!checkIncus()) {
-        cleanTempDirs();
-        return 1;
-    }
-
-    // Run the import process directly (no menu)
-    importToIncus();
-
-    // Clean up and exit
-    cleanTempDirs();
-    return 0;
-}
-
-// NEW FUNCTION: Setup container to be the boot target
+// Setup container to be the boot target
 void setupContainerBoot(const std::string& container_name) {
     std::cout << COLOR_CYAN << "\n=== Setting up container as boot target ===" << COLOR_RESET << std::endl;
     
@@ -281,7 +234,7 @@ void setupContainerBoot(const std::string& container_name) {
         std::cout << COLOR_GREEN << "Found login manager: " << login_manager << COLOR_RESET << std::endl;
         system(("sudo incus exec " + container_name + " -- systemctl enable " + login_manager).c_str());
     } else {
-        std::cout << COLOR_YELLOW << "No login manager found. Container will boot without display manager." << COLOR_RESET << std::endl;
+        std::cout << COLOR_YELLOW << "No login manager found." << COLOR_RESET << std::endl;
     }
     
     // 4. Setup hardware access
@@ -289,74 +242,58 @@ void setupContainerBoot(const std::string& container_name) {
     system(("sudo incus config device add " + container_name + " wayland unix-char path=/run/user/1000/wayland-0").c_str());
     system(("sudo incus config device add " + container_name + " x11 unix-char path=/tmp/.X11-unix/X0").c_str());
     system(("sudo incus config device add " + container_name + " pulseaudio unix-char path=/run/user/1000/pulse/native").c_str());
-    system(("sudo incus config device add " + container_name + " input0 unix-char path=/dev/input/event0").c_str());
-    system(("sudo incus config device add " + container_name + " bluetooth unix-char path=/dev/bus/usb").c_str());
-    system(("sudo incus config device add " + container_name + " dbus unix-char path=/run/user/1000/bus").c_str());
     
-    // 5. Create systemd service to replace display manager with container
-    std::string service_content = R"([Unit]
-Description=Container Display Service
-After=network-online.target incus.service
-Wants=network-online.target
-Conflicts=getty@tty1.service
+    std::cout << COLOR_GREEN << "\n✓ Container setup complete!" << COLOR_RESET << std::endl;
+    std::cout << COLOR_YELLOW << "\nReboot to use container as main system: sudo reboot\n" << COLOR_RESET << std::endl;
+}
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/incus start )" + container_name + R"(
-ExecStop=/usr/bin/incus stop )" + container_name + R"(
-TimeoutStartSec=600
+// Show fucking menu
+void showMenu() {
+    int choice = 0;
+    
+    do {
+        std::cout << COLOR_CYAN << "\n=== Arch Freeze MENU ===\n" << COLOR_RESET;
+        std::cout << "Current container: " << (container_name.empty() ? COLOR_RED + "NOT SET" + COLOR_RESET : COLOR_GREEN + container_name + COLOR_RESET) << "\n";
+        std::cout << COLOR_YELLOW << "1. Name Container\n";
+        std::cout << "2. Create Container (clone system)\n";
+        std::cout << "3. Exit\n" << COLOR_RESET;
+        std::cout << COLOR_CYAN << "Choice [1-3]: " << COLOR_RESET;
+        
+        std::cin >> choice;
+        
+        switch(choice) {
+            case 1:
+                nameContainer();
+                break;
+            case 2:
+                createContainer();
+                break;
+            case 3:
+                std::cout << COLOR_CYAN << "Exiting...\n" << COLOR_RESET;
+                break;
+            default:
+                std::cout << COLOR_RED << "Invalid choice!\n" << COLOR_RESET;
+        }
+        
+    } while (choice != 3);
+}
 
-[Install]
-WantedBy=graphical.target
-)";
+int main() {
+    std::cout << APEX_ART;
+    std::cout << COLOR_CYAN << "claudemods Arch Freeze Beta v1.0\n" << COLOR_RESET;
     
-    std::ofstream service_file("/etc/systemd/system/container-display.service");
-    service_file << service_content;
-    service_file.close();
-    
-    system("sudo systemctl daemon-reload");
-    system("sudo systemctl enable container-display.service");
-    
-    // 6. Disable host display manager and enable container as display
-    for (const auto& manager : managers) {
-        system(("sudo systemctl disable " + manager + " 2>/dev/null || true").c_str());
+    // Quick check for Arch
+    if (system("grep -q 'ID=arch' /etc/os-release 2>/dev/null") != 0) {
+        std::cout << COLOR_RED << "This tool only works on Arch Linux!\n" << COLOR_RESET;
+        return 1;
     }
     
-    // 7. Set graphical target to start container
-    system("sudo systemctl set-default graphical.target");
-    
-    // 8. Create container login service
-    std::string login_service = R"([Unit]
-Description=Container Login Service
-After=container-display.service
-Before=display-manager.service
-Conflicts=display-manager.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/bash -c "sleep 5 && incus exec )" + container_name + R"( -- systemctl start display-manager.target"
-Restart=on-failure
-RestartSec=10
-TimeoutStartSec=0
-
-[Install]
-WantedBy=graphical.target
-)";
-    
-    std::ofstream login_file("/etc/systemd/system/container-login.service");
-    login_file << login_service;
-    login_file.close();
-    
-    system("sudo systemctl enable container-login.service");
-    
-    std::cout << COLOR_GREEN << "\n=== Setup complete! ===" << COLOR_RESET << std::endl;
-    std::cout << COLOR_YELLOW << "\nOn next reboot:" << COLOR_RESET << std::endl;
-    std::cout << "1. System will boot into the container" << std::endl;
-    if (!login_manager.empty()) {
-        std::cout << "2. " << login_manager << " login manager will start in container" << std::endl;
+    // Quick check for Incus
+    if (system("command -v incus &> /dev/null") != 0) {
+        std::cout << COLOR_RED << "Incus is not installed!\n" << COLOR_RESET;
+        return 1;
     }
-    std::cout << "3. You can login as your normal user" << std::endl;
-    std::cout << "4. Container has WiFi, Bluetooth, Wayland, X11, audio support" << std::endl;
-    std::cout << "\n" << COLOR_CYAN << "Reboot now to test: sudo reboot" << COLOR_RESET << std::endl;
+    
+    showMenu();
+    return 0;
 }
